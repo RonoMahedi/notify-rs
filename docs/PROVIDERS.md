@@ -15,7 +15,7 @@ push, an SMS gateway, an email service. This guide covers:
 |---|---|---|
 | Push | Firebase Cloud Messaging (HTTP v1): `crates/worker/src/fcm.rs` | **Done.** Add credentials and it's live. Covers Android and, through Firebase, iOS. |
 | Email | `MockProvider` | **Mock only.** Pretends to send. Needs an adapter (SES, SendGrid, SMTP, …). |
-| SMS | `MockProvider` | **Mock only.** Needs an adapter for your gateway. |
+| SMS | SSL Wireless (ISMS Plus, API v3): `crates/worker/src/sslwireless.rs` | **Done.** Set `SMS_PROVIDER=sslwireless` and its settings ([below](#ssl-wireless)). Other gateways need an adapter. |
 | In-app | `MockProvider` | **Mock only.** Needs a WebSocket/realtime gateway. |
 
 When a channel has no real provider configured, the worker uses the mock, so the whole pipeline
@@ -138,6 +138,8 @@ Rules:
 ## 5. Adding a gateway, step by step
 
 The example below is a generic JSON-over-HTTP SMS gateway. It compiles and passes clippy as written.
+For a complete real adapter, with error-code mapping, idempotency and a test against a local fake
+gateway, see `crates/worker/src/sslwireless.rs`.
 Adapt the request body and the error mapping to your gateway's API documentation.
 
 ### Step 1: create the adapter
@@ -282,6 +284,49 @@ before opening a pull request. CI runs the same checks.
 
 ## 6. Notes by channel
 
+### SSL Wireless
+
+Bangladesh SMS through SSL Wireless ISMS Plus (`POST /api/v3/send-sms`).
+
+| Variable | Required | Meaning |
+|---|---|---|
+| `SMS_PROVIDER` | yes | `sslwireless` |
+| `SSLWIRELESS_API_TOKEN` | yes* | API token from the ISMS Plus portal. *Or `SSLWIRELESS_API_TOKEN_FILE` pointing to a file in `secrets/`. |
+| `SSLWIRELESS_SID` | yes | Your approved sender ID (masking or non-masking). Used for `high` and `normal` priority. |
+| `SSLWIRELESS_SID_BULK` | no | A separate sender ID for `bulk` (campaign) traffic, if SSL gave you a promotional one. Defaults to `SSLWIRELESS_SID`. |
+| `SSLWIRELESS_URL` | no | Base URL. Default `https://smsplus.sslwireless.com`. |
+
+Example `.env`:
+
+```bash
+SMS_PROVIDER=sslwireless
+SSLWIRELESS_API_TOKEN=xxxx-xxxx-xxxx
+SSLWIRELESS_SID=MYBRAND
+RATE_LIMIT_SMS=50          # your TPS quota divided by the number of SMS worker pods
+```
+
+Before going live:
+
+- **Whitelist the server IP.** SSL accepts requests only from registered IPs; otherwise every send
+  fails with `4003`. Register the workers' outbound (NAT) IP in the portal.
+- **Set `RATE_LIMIT_SMS`** to your TPS quota. Going over it returns `4029`/`4031`, which are retried
+  but waste time.
+- **Numbers** are sent as `8801XXXXXXXXX`. E.164 (`+880…`) and local (`017…`) formats are converted.
+
+How results are handled:
+
+| Gateway answer | Result |
+|---|---|
+| `200` with `SUCCESS` | Sent |
+| `4023` duplicate `csms_id` | Sent (an earlier copy was already accepted) |
+| `4029`, `4031` rate limit, `4033` too many OTPs, `5000`, HTTP 5xx, timeouts | Retried through the retry tiers |
+| `4025` invalid number, `4026` blocked number, `4027` too long, `4032` invalid text | Failed, not retried |
+| `4001` bad token, `4002` sender ID not permitted, `4003` IP not whitelisted | Failed, with a message saying what to fix |
+
+**Duplicates:** each attempt sends a `csms_id` derived from the notification id and attempt number.
+If a worker crashes after sending but before recording it, the redelivered message reuses the same
+`csms_id`, and the gateway rejects it as a duplicate instead of sending a second SMS.
+
 ### SMS
 
 - **Length:** the Templates tab shows parts per message. GSM text fits 160 characters per part.
@@ -318,7 +363,7 @@ before opening a pull request. CI runs the same checks.
 
 ## 8. Not built yet (good contributions)
 
-- Adapters for SES, SendGrid, SMTP, Twilio and Bangladeshi SMS gateways
+- Adapters for SES, SendGrid, SMTP, Twilio and other Bangladeshi SMS gateways (Alpha, BulkSMSBD, …)
 - **Delivery receipts:** SMS DLR and email bounce/complaint webhooks feeding back into history and opt-outs
 - **Provider failover:** a second SMS gateway when the first is down
 - **Circuit breaker:** stop calling a provider that is failing everything, and park traffic in the retry tiers

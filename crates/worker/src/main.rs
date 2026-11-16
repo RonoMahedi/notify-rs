@@ -4,6 +4,7 @@
 
 mod fcm;
 mod provider;
+mod sslwireless;
 
 use std::{
     collections::HashMap,
@@ -397,13 +398,26 @@ fn build_ctx(redis: ConnectionManager) -> Ctx {
             mock("fcm_apns", 20, 80)
         }
     };
-    for (ch, name) in [("email", "ses"), ("sms", "twilio"), ("in_app", "ws_gateway")] {
+    let sms: Arc<dyn Provider> = match std::env::var("SMS_PROVIDER").unwrap_or_default().trim() {
+        "" | "mock" => {
+            gauge!("provider_info", "channel" => "sms", "provider" => "mock (twilio)", "mode" => "mock").set(1.0);
+            mock("twilio", 80, 300)
+        }
+        "sslwireless" => {
+            let p = sslwireless::SslWireless::from_env().expect("SSL Wireless configuration").expect("SMS_PROVIDER=sslwireless");
+            tracing::info!(bulk_sender_id = p.has_bulk_sid(), "sms: SSL Wireless");
+            gauge!("provider_info", "channel" => "sms", "provider" => "sslwireless", "mode" => "live").set(1.0);
+            Arc::new(p)
+        }
+        other => panic!("unknown SMS_PROVIDER {other:?}: use sslwireless, or leave it empty for the mock"),
+    };
+    for (ch, name) in [("email", "ses"), ("in_app", "ws_gateway")] {
         gauge!("provider_info", "channel" => ch, "provider" => format!("mock ({name})"), "mode" => "mock").set(1.0);
     }
     let providers: HashMap<Channel, Arc<dyn Provider>> = HashMap::from([
         (Channel::Push, push),
         (Channel::Email, mock("ses", 40, 160)),
-        (Channel::Sms, mock("twilio", 80, 300)),
+        (Channel::Sms, sms),
         (Channel::InApp, mock("ws_gateway", 2, 8)),
     ]);
     // Per-instance limits; the global limit is this x replica count (see ARCHITECTURE.md).

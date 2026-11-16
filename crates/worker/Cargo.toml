@@ -24,6 +24,7 @@ uuid.workspace = true
 reqwest.workspace = true
 serde.workspace = true
 jsonwebtoken = "9"
+sha2 = "0.10"
 
 [lints]
 workspace = true

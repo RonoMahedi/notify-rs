@@ -15,6 +15,13 @@ x-app: &app
     FCM_VALIDATE_ONLY: ${FCM_VALIDATE_ONLY:-false}
     FCM_ENDPOINT: ${FCM_ENDPOINT:-}
     FCM_TOKEN_URI: ${FCM_TOKEN_URI:-}
+    # SMS gateway. Empty = mock provider. See docs/PROVIDERS.md.
+    SMS_PROVIDER: ${SMS_PROVIDER:-}
+    SSLWIRELESS_API_TOKEN: ${SSLWIRELESS_API_TOKEN:-}
+    SSLWIRELESS_API_TOKEN_FILE: ${SSLWIRELESS_API_TOKEN_FILE:-}
+    SSLWIRELESS_SID: ${SSLWIRELESS_SID:-}
+    SSLWIRELESS_SID_BULK: ${SSLWIRELESS_SID_BULK:-}
+    SSLWIRELESS_URL: ${SSLWIRELESS_URL:-}
   depends_on:
     topics: { condition: service_completed_successfully }
     redis: { condition: service_healthy }
