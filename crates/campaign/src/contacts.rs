@@ -97,11 +97,10 @@ pub async fn get(State(app): State<App>, Path(user_id): Path<String>) -> ApiResu
     .bind(&user_id)
     .fetch_one(&app.db)
     .await?;
-    let devices: Vec<(String, String)> =
-        sqlx::query_as("SELECT platform, token FROM devices WHERE user_id = $1 ORDER BY updated_at DESC")
-            .bind(&user_id)
-            .fetch_all(&app.db)
-            .await?;
+    let devices: Vec<(String, String)> = sqlx::query_as("SELECT platform, token FROM devices WHERE user_id = $1 ORDER BY updated_at DESC")
+        .bind(&user_id)
+        .fetch_all(&app.db)
+        .await?;
     let devices: Vec<Value> = devices.into_iter().map(|(p, t)| json!({"platform": p, "token": t})).collect();
     let mut v = serde_json::to_value(c).map_err(anyhow::Error::from)?;
     v["devices"] = json!(devices);
@@ -115,11 +114,7 @@ pub struct ChannelIn {
 
 /// Unsubscribe is written to Postgres (cohort exclusion) AND Redis (workers drop
 /// already-queued messages immediately).
-pub async fn unsubscribe(
-    State(app): State<App>,
-    Path(user_id): Path<String>,
-    Json(b): Json<ChannelIn>,
-) -> ApiResult<Json<Value>> {
+pub async fn unsubscribe(State(app): State<App>, Path(user_id): Path<String>, Json(b): Json<ChannelIn>) -> ApiResult<Json<Value>> {
     let ch = b.channel.as_str();
     let r = sqlx::query(
         "UPDATE contacts SET unsubscribed = array_append(unsubscribed, $2), updated_at = now()
@@ -134,11 +129,7 @@ pub async fn unsubscribe(
     Ok(Json(json!({ "user_id": user_id, "unsubscribed": ch, "changed": r.rows_affected() > 0 })))
 }
 
-pub async fn resubscribe(
-    State(app): State<App>,
-    Path(user_id): Path<String>,
-    Json(b): Json<ChannelIn>,
-) -> ApiResult<Json<Value>> {
+pub async fn resubscribe(State(app): State<App>, Path(user_id): Path<String>, Json(b): Json<ChannelIn>) -> ApiResult<Json<Value>> {
     let ch = b.channel.as_str();
     sqlx::query("UPDATE contacts SET unsubscribed = array_remove(unsubscribed, $2), updated_at = now() WHERE user_id = $1")
         .bind(&user_id)
@@ -166,10 +157,8 @@ pub async fn register_device(State(app): State<App>, Json(d): Json<DeviceIn>) ->
         return Err(AppError::bad("invalid user_id or token"));
     }
     // A token belongs to exactly one user: re-registering moves it (shared/resold phones).
-    let previous: Option<String> = sqlx::query_scalar("SELECT user_id FROM devices WHERE token = $1")
-        .bind(&d.token)
-        .fetch_optional(&app.db)
-        .await?;
+    let previous: Option<String> =
+        sqlx::query_scalar("SELECT user_id FROM devices WHERE token = $1").bind(&d.token).fetch_optional(&app.db).await?;
     sqlx::query(
         "INSERT INTO devices (token, user_id, platform) VALUES ($1, $2, $3)
          ON CONFLICT (token) DO UPDATE SET user_id = EXCLUDED.user_id, platform = EXCLUDED.platform, updated_at = now()",
@@ -191,10 +180,8 @@ pub async fn register_device(State(app): State<App>, Json(d): Json<DeviceIn>) ->
 }
 
 pub async fn delete_device(State(app): State<App>, Path(token): Path<String>) -> ApiResult<StatusCode> {
-    let owner: Option<String> = sqlx::query_scalar("DELETE FROM devices WHERE token = $1 RETURNING user_id")
-        .bind(&token)
-        .fetch_optional(&app.db)
-        .await?;
+    let owner: Option<String> =
+        sqlx::query_scalar("DELETE FROM devices WHERE token = $1 RETURNING user_id").bind(&token).fetch_optional(&app.db).await?;
     if let Some(u) = owner {
         let mut r = app.redis.clone();
         let _: () = r.srem(devices_key(&u), &token).await?;
@@ -207,10 +194,8 @@ pub async fn remove_dead_tokens(app: &App, tokens: &[String]) -> anyhow::Result<
     if tokens.is_empty() {
         return Ok(0);
     }
-    let gone: Vec<(String, String)> = sqlx::query_as("DELETE FROM devices WHERE token = ANY($1) RETURNING user_id, token")
-        .bind(tokens)
-        .fetch_all(&app.db)
-        .await?;
+    let gone: Vec<(String, String)> =
+        sqlx::query_as("DELETE FROM devices WHERE token = ANY($1) RETURNING user_id, token").bind(tokens).fetch_all(&app.db).await?;
     let mut pipe = redis::pipe();
     for (u, t) in &gone {
         pipe.srem(devices_key(u), t).ignore();
@@ -259,11 +244,10 @@ async fn rebuild_devices(app: App) -> anyhow::Result<usize> {
     let mut r = app.redis.clone();
     let (mut after, mut total) = (String::new(), 0usize);
     loop {
-        let rows: Vec<(String, String)> =
-            sqlx::query_as("SELECT token, user_id FROM devices WHERE token > $1 ORDER BY token LIMIT 10000")
-                .bind(&after)
-                .fetch_all(&app.db)
-                .await?;
+        let rows: Vec<(String, String)> = sqlx::query_as("SELECT token, user_id FROM devices WHERE token > $1 ORDER BY token LIMIT 10000")
+            .bind(&after)
+            .fetch_all(&app.db)
+            .await?;
         let Some(last) = rows.last().map(|(t, _)| t.clone()) else { return Ok(total) };
         let mut pipe = redis::pipe();
         for (t, u) in &rows {

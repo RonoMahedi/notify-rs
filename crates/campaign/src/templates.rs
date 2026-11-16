@@ -70,9 +70,8 @@ pub async fn sync_loop(app: App) {
 
 fn describe(t: &TemplateRow) -> Value {
     let mut v = serde_json::to_value(t).unwrap();
-    let tokens: Vec<String> = template::validate(t.title.as_deref(), &t.body)
-        .map(|ts| ts.into_iter().map(|t| t.path).collect())
-        .unwrap_or_default();
+    let tokens: Vec<String> =
+        template::validate(t.title.as_deref(), &t.body).map(|ts| ts.into_iter().map(|t| t.path).collect()).unwrap_or_default();
     v["tokens"] = json!(tokens);
     if t.channel == "sms" {
         v["sms"] = json!(template::sms_info(&t.body));
@@ -161,12 +160,11 @@ pub async fn delete(State(app): State<App>, Path((ch, key)): Path<(String, Strin
 
 /// The token values a contact provides (same shape the campaign runner sends).
 pub async fn contact_vars(app: &App, user_id: &str) -> ApiResult<Value> {
-    let row: Option<(String, Option<String>, Option<String>, Option<String>, Option<String>, Value)> = sqlx::query_as(
-        "SELECT user_id, first_name, last_name, email, phone, attributes FROM contacts WHERE user_id = $1",
-    )
-    .bind(user_id)
-    .fetch_optional(&app.db)
-    .await?;
+    let row: Option<(String, Option<String>, Option<String>, Option<String>, Option<String>, Value)> =
+        sqlx::query_as("SELECT user_id, first_name, last_name, email, phone, attributes FROM contacts WHERE user_id = $1")
+            .bind(user_id)
+            .fetch_optional(&app.db)
+            .await?;
     let (uid, f, l, e, p, a) = row.ok_or_else(|| AppError::not_found("no such person"))?;
     Ok(json!({ "user_id": uid, "first_name": f, "last_name": l, "email": e, "phone": p, "attributes": a }))
 }

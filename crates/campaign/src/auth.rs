@@ -63,16 +63,11 @@ impl Principal {
 
 pub fn hash_password(pw: &str) -> anyhow::Result<String> {
     let salt = SaltString::generate(&mut OsRng);
-    Argon2::default()
-        .hash_password(pw.as_bytes(), &salt)
-        .map(|h| h.to_string())
-        .map_err(|e| anyhow::anyhow!("hash: {e}"))
+    Argon2::default().hash_password(pw.as_bytes(), &salt).map(|h| h.to_string()).map_err(|e| anyhow::anyhow!("hash: {e}"))
 }
 
 pub fn verify_password(pw: &str, hash: &str) -> bool {
-    PasswordHash::new(hash)
-        .map(|h| Argon2::default().verify_password(pw.as_bytes(), &h).is_ok())
-        .unwrap_or(false)
+    PasswordHash::new(hash).map(|h| Argon2::default().verify_password(pw.as_bytes(), &h).is_ok()).unwrap_or(false)
 }
 
 /// Same cost as a real verify, so "no such user" isn't faster than "wrong password".
@@ -137,10 +132,7 @@ fn cookie_value(headers: &HeaderMap) -> Option<String> {
 }
 
 fn session_cookie(app: &App, token: &str, max_age: i64) -> String {
-    format!(
-        "{COOKIE}={token}; HttpOnly; SameSite=Strict; Path=/; Max-Age={max_age}{}",
-        if app.cookie_secure { "; Secure" } else { "" }
-    )
+    format!("{COOKIE}={token}; HttpOnly; SameSite=Strict; Path=/; Max-Age={max_age}{}", if app.cookie_secure { "; Secure" } else { "" })
 }
 
 /// `Origin: http://localhost:8090` must match `Host: localhost:8090`.
@@ -179,18 +171,15 @@ async fn load_session(app: &App, token: &str) -> Option<Principal> {
 }
 
 pub async fn require_auth(State(app): State<App>, mut req: Request, next: Next) -> Response {
-    let bearer = req
-        .headers()
-        .get(header::AUTHORIZATION)
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.strip_prefix("Bearer "))
-        .map(str::to_string);
+    let bearer =
+        req.headers().get(header::AUTHORIZATION).and_then(|v| v.to_str().ok()).and_then(|v| v.strip_prefix("Bearer ")).map(str::to_string);
     let principal = match bearer {
-        Some(t) => app
-            .api_key
-            .as_deref()
-            .filter(|k| ct_eq(t.as_bytes(), k.as_bytes()))
-            .map(|_| Principal { user_id: None, email: "api-key".into(), name: Some("API key".into()), role: "admin".into() }),
+        Some(t) => app.api_key.as_deref().filter(|k| ct_eq(t.as_bytes(), k.as_bytes())).map(|_| Principal {
+            user_id: None,
+            email: "api-key".into(),
+            name: Some("API key".into()),
+            role: "admin".into(),
+        }),
         None => match cookie_value(req.headers()) {
             Some(t) => load_session(&app, &t).await,
             None => None,
@@ -232,10 +221,7 @@ fn argon2_slots() -> &'static tokio::sync::Semaphore {
 }
 
 fn too_many(ttl: i64) -> AppError {
-    AppError(
-        StatusCode::TOO_MANY_REQUESTS,
-        format!("Too many failed attempts. Try again in {} minutes.", (ttl.max(60) + 59) / 60),
-    )
+    AppError(StatusCode::TOO_MANY_REQUESTS, format!("Too many failed attempts. Try again in {} minutes.", (ttl.max(60) + 59) / 60))
 }
 
 pub async fn login(
@@ -369,7 +355,8 @@ pub async fn change_password(
     let keep = cookie_value(&headers).map(|t| token_hash(&t)).unwrap_or_default();
     let mut tx = app.db.begin().await?;
     sqlx::query("UPDATE admin_users SET password_hash = $2 WHERE id = $1").bind(uid).bind(new_hash).execute(&mut *tx).await?;
-    let r = sqlx::query("DELETE FROM admin_sessions WHERE user_id = $1 AND token_hash <> $2").bind(uid).bind(keep).execute(&mut *tx).await?;
+    let r =
+        sqlx::query("DELETE FROM admin_sessions WHERE user_id = $1 AND token_hash <> $2").bind(uid).bind(keep).execute(&mut *tx).await?;
     tx.commit().await?;
     Ok(Json(json!({ "changed": true, "other_sessions_signed_out": r.rows_affected() })))
 }
@@ -402,7 +389,11 @@ pub struct NewUserIn {
 }
 
 fn valid_role(r: &str) -> ApiResult<()> {
-    if matches!(r, "admin" | "marketer") { Ok(()) } else { Err(AppError::bad("role must be admin or marketer")) }
+    if matches!(r, "admin" | "marketer") {
+        Ok(())
+    } else {
+        Err(AppError::bad("role must be admin or marketer"))
+    }
 }
 
 pub async fn create_user(
@@ -479,9 +470,8 @@ pub async fn update_user(
     .fetch_one(&mut *tx)
     .await?;
     // Never leave the system with no enabled admin.
-    let admins: i64 = sqlx::query_scalar("SELECT count(*) FROM admin_users WHERE role = 'admin' AND NOT disabled")
-        .fetch_one(&mut *tx)
-        .await?;
+    let admins: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM admin_users WHERE role = 'admin' AND NOT disabled").fetch_one(&mut *tx).await?;
     if admins == 0 {
         return Err(AppError::conflict("at least one enabled admin must remain"));
     }
@@ -500,10 +490,7 @@ pub async fn update_user(
 pub async fn cli(args: &[String], db: &sqlx::PgPool, redis_url: &str) -> anyhow::Result<()> {
     let usage = "usage: campaign create-admin <email> [admin|marketer]  |  campaign reset-password <email>";
     let cmd = args.get(1).map(String::as_str).unwrap_or_default();
-    let email = args
-        .get(2)
-        .and_then(|e| crate::imports::normalize_email(e))
-        .ok_or_else(|| anyhow::anyhow!("{usage}"))?;
+    let email = args.get(2).and_then(|e| crate::imports::normalize_email(e)).ok_or_else(|| anyhow::anyhow!("{usage}"))?;
     let (password, generated) = match std::env::var("NEW_PASSWORD") {
         Ok(p) if !p.is_empty() => (p, false),
         _ => (generate_password(), true),
@@ -514,23 +501,26 @@ pub async fn cli(args: &[String], db: &sqlx::PgPool, redis_url: &str) -> anyhow:
         "create-admin" => {
             let role = args.get(3).map(String::as_str).unwrap_or("admin");
             anyhow::ensure!(matches!(role, "admin" | "marketer"), "{usage}");
-            let res = sqlx::query("INSERT INTO admin_users (id, email, role, password_hash) VALUES ($1, $2, $3, $4) ON CONFLICT (email) DO NOTHING")
-                .bind(Uuid::now_v7())
-                .bind(&email)
-                .bind(role)
-                .bind(&hash)
-                .execute(db)
-                .await?;
+            let res = sqlx::query(
+                "INSERT INTO admin_users (id, email, role, password_hash) VALUES ($1, $2, $3, $4) ON CONFLICT (email) DO NOTHING",
+            )
+            .bind(Uuid::now_v7())
+            .bind(&email)
+            .bind(role)
+            .bind(&hash)
+            .execute(db)
+            .await?;
             anyhow::ensure!(res.rows_affected() == 1, "{email} already exists; use reset-password");
             println!("Created {role} {email}");
         }
         "reset-password" => {
             let mut tx = db.begin().await?;
-            let id: Option<Uuid> = sqlx::query_scalar("UPDATE admin_users SET password_hash = $2, disabled = false WHERE email = $1 RETURNING id")
-                .bind(&email)
-                .bind(&hash)
-                .fetch_optional(&mut *tx)
-                .await?;
+            let id: Option<Uuid> =
+                sqlx::query_scalar("UPDATE admin_users SET password_hash = $2, disabled = false WHERE email = $1 RETURNING id")
+                    .bind(&email)
+                    .bind(&hash)
+                    .fetch_optional(&mut *tx)
+                    .await?;
             let id = id.ok_or_else(|| anyhow::anyhow!("no user {email}"))?;
             sqlx::query("DELETE FROM admin_sessions WHERE user_id = $1").bind(id).execute(&mut *tx).await?;
             tx.commit().await?;

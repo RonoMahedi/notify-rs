@@ -2,10 +2,7 @@ use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
 use tracing_subscriber::EnvFilter;
 
 pub fn init_tracing() {
-    tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()))
-        .json()
-        .init();
+    tracing_subscriber::fmt().with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into())).json().init();
 }
 
 pub fn init_metrics() -> PrometheusHandle {

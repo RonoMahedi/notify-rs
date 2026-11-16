@@ -139,7 +139,8 @@ pub fn validate(title: Option<&str>, body: &str) -> Result<Vec<Token>, String> {
 
 // ------------------------------------------------------------------ SMS length
 
-const GSM_BASIC: &str = "@£$¥èéùìòÇ\nØø\rÅåΔ_ΦΓΛΩΠΨΣΘΞÆæßÉ !\"#¤%&'()*+,-./0123456789:;<=>?¡ABCDEFGHIJKLMNOPQRSTUVWXYZÄÖÑÜ§¿abcdefghijklmnopqrstuvwxyzäöñüà";
+const GSM_BASIC: &str =
+    "@£$¥èéùìòÇ\nØø\rÅåΔ_ΦΓΛΩΠΨΣΘΞÆæßÉ !\"#¤%&'()*+,-./0123456789:;<=>?¡ABCDEFGHIJKLMNOPQRSTUVWXYZÄÖÑÜ§¿abcdefghijklmnopqrstuvwxyzäöñüà";
 const GSM_EXTENDED: &str = "^{}\\[~]|€\u{000C}";
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -167,11 +168,19 @@ pub fn sms_info(text: &str) -> SmsInfo {
         }
     });
     if gsm {
-        let segments = match units { 0 => 0, 1..=160 => 1, n => n.div_ceil(153) };
+        let segments = match units {
+            0 => 0,
+            1..=160 => 1,
+            n => n.div_ceil(153),
+        };
         SmsInfo { encoding: "GSM-7", length: units, segments, per_segment: if segments > 1 { 153 } else { 160 } }
     } else {
         let u = text.encode_utf16().count();
-        let segments = match u { 0 => 0, 1..=70 => 1, n => n.div_ceil(67) };
+        let segments = match u {
+            0 => 0,
+            1..=70 => 1,
+            n => n.div_ceil(67),
+        };
         SmsInfo { encoding: "Unicode", length: u, segments, per_segment: if segments > 1 { 67 } else { 70 } }
     }
 }
@@ -184,7 +193,8 @@ mod tests {
     #[test]
     fn renders_tokens_defaults_and_nested_attributes() {
         let vars = json!({"first_name": "Rahim", "discount": 20, "attributes": {"plan": "gold"}, "empty": ""});
-        let r = render("Hi {{first_name}}, {{ discount }}% off for {{attributes.plan}} members. {{empty|-}} {{city|Dhaka}}", &vars).unwrap();
+        let r =
+            render("Hi {{first_name}}, {{ discount }}% off for {{attributes.plan}} members. {{empty|-}} {{city|Dhaka}}", &vars).unwrap();
         assert_eq!(r.text, "Hi Rahim, 20% off for gold members. - Dhaka");
         assert!(r.missing.is_empty());
     }

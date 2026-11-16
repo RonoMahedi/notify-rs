@@ -29,9 +29,7 @@ impl From<sqlx::Error> for AppError {
     fn from(e: sqlx::Error) -> Self {
         match &e {
             sqlx::Error::RowNotFound => AppError::not_found("not found"),
-            sqlx::Error::Database(d) if d.code().as_deref() == Some("23505") => {
-                AppError::conflict("already exists (name must be unique)")
-            }
+            sqlx::Error::Database(d) if d.code().as_deref() == Some("23505") => AppError::conflict("already exists (name must be unique)"),
             sqlx::Error::Database(d) if d.code().as_deref() == Some("23503") => {
                 AppError::conflict("referenced record missing or still in use")
             }

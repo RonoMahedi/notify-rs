@@ -100,8 +100,7 @@ async fn enqueue_many(s: &AppState, reqs: Vec<NotificationRequest>) -> Vec<Resul
         let mut pipe = redis::pipe();
         for &j in &keyed {
             let (_, k, env) = &pending[j];
-            pipe.cmd("SET").arg(idem_key(k.as_ref().unwrap())).arg(env.id.to_string())
-                .arg("NX").arg("EX").arg(DEDUP_TTL_SECS);
+            pipe.cmd("SET").arg(idem_key(k.as_ref().unwrap())).arg(env.id.to_string()).arg("NX").arg("EX").arg(DEDUP_TTL_SECS);
         }
         match pipe.query_async::<Vec<Option<String>>>(&mut redis).await {
             Ok(set) => {
@@ -129,9 +128,7 @@ async fn enqueue_many(s: &AppState, reqs: Vec<NotificationRequest>) -> Vec<Resul
         let topic = main_topic(env.channel, env.priority);
         let payload = serde_json::to_vec(env).expect("serialize");
         let started = Instant::now();
-        let res = s.producer
-            .send(FutureRecord::to(&topic).key(&env.user_id).payload(&payload), Duration::from_secs(0))
-            .await;
+        let res = s.producer.send(FutureRecord::to(&topic).key(&env.user_id).payload(&payload), Duration::from_secs(0)).await;
         histogram!("kafka_produce_duration_seconds", "topic" => topic).record(started.elapsed().as_secs_f64());
         (*i, idem, env, res.map(|_| ()).map_err(|(e, _)| e))
     });
@@ -144,8 +141,7 @@ async fn enqueue_many(s: &AppState, reqs: Vec<NotificationRequest>) -> Vec<Resul
     for (i, idem, env, res) in produced {
         match res {
             Ok(()) => {
-                pipe.cmd("SET").arg(status_key(&env.id)).arg(Status::Queued.as_str())
-                    .arg("NX").arg("EX").arg(ttl).ignore();
+                pipe.cmd("SET").arg(status_key(&env.id)).arg(Status::Queued.as_str()).arg("NX").arg("EX").arg(ttl).ignore();
                 counter!("notifications_accepted_total",
                     "channel" => env.channel.as_str(), "priority" => env.priority.as_str())
                 .increment(1);
@@ -181,19 +177,13 @@ async fn enqueue_many(s: &AppState, reqs: Vec<NotificationRequest>) -> Vec<Resul
     out.into_iter().map(Option::unwrap).collect()
 }
 
-async fn create(
-    State(s): State<AppState>,
-    Json(req): Json<NotificationRequest>,
-) -> Result<(StatusCode, Json<Accepted>), ApiError> {
+async fn create(State(s): State<AppState>, Json(req): Json<NotificationRequest>) -> Result<(StatusCode, Json<Accepted>), ApiError> {
     let a = enqueue_many(&s, vec![req]).await.pop().unwrap()?;
     let code = if a.duplicate { StatusCode::OK } else { StatusCode::ACCEPTED };
     Ok((code, Json(a)))
 }
 
-async fn create_batch(
-    State(s): State<AppState>,
-    Json(b): Json<BatchRequest>,
-) -> Result<(StatusCode, Json<Vec<BatchItem>>), ApiError> {
+async fn create_batch(State(s): State<AppState>, Json(b): Json<BatchRequest>) -> Result<(StatusCode, Json<Vec<BatchItem>>), ApiError> {
     if b.notifications.is_empty() || b.notifications.len() > MAX_BATCH {
         return Err(ApiError::BadRequest(format!("batch size must be 1..={MAX_BATCH}")));
     }
@@ -238,19 +228,13 @@ async fn index() -> Json<serde_json::Value> {
 }
 
 async fn track_http(req: Request, next: Next) -> Response {
-    let route = req
-        .extensions()
-        .get::<MatchedPath>()
-        .map(|p| p.as_str().to_owned())
-        .unwrap_or_else(|| "unmatched".into());
+    let route = req.extensions().get::<MatchedPath>().map(|p| p.as_str().to_owned()).unwrap_or_else(|| "unmatched".into());
     let method = req.method().to_string();
     let start = Instant::now();
     let resp = next.run(req).await;
     let status = resp.status().as_u16().to_string();
-    counter!("http_requests_total", "route" => route.clone(), "method" => method.clone(), "status" => status)
-        .increment(1);
-    histogram!("http_request_duration_seconds", "route" => route, "method" => method)
-        .record(start.elapsed().as_secs_f64());
+    counter!("http_requests_total", "route" => route.clone(), "method" => method.clone(), "status" => status).increment(1);
+    histogram!("http_request_duration_seconds", "route" => route, "method" => method).record(start.elapsed().as_secs_f64());
     resp
 }
 
@@ -259,11 +243,7 @@ async fn main() -> anyhow::Result<()> {
     telemetry::init_tracing();
     let metrics = telemetry::init_metrics();
     let redis_client = redis::Client::open(env_or("REDIS_URL", "redis://127.0.0.1:16379"))?;
-    let state = AppState {
-        producer: kafka::producer(),
-        redis: ConnectionManager::new(redis_client).await?,
-        metrics,
-    };
+    let state = AppState { producer: kafka::producer(), redis: ConnectionManager::new(redis_client).await?, metrics };
 
     let app = Router::new()
         .route("/v1/notifications", post(create))
@@ -278,8 +258,6 @@ async fn main() -> anyhow::Result<()> {
     let addr = env_or("BIND_ADDR", "0.0.0.0:8080");
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     tracing::info!(%addr, "api listening");
-    axum::serve(listener, app)
-        .with_graceful_shutdown(common::shutdown::signal())
-        .await?;
+    axum::serve(listener, app).with_graceful_shutdown(common::shutdown::signal()).await?;
     Ok(())
 }

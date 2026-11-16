@@ -118,11 +118,7 @@ pub async fn create(State(app): State<App>, Json(c): Json<CampaignIn>) -> ApiRes
         .fetch_one(&app.db)
         .await?;
     if !has_template {
-        return Err(AppError::bad(format!(
-            "no {} template named '{}': create it under Templates first",
-            c.channel.as_str(),
-            c.template
-        )));
+        return Err(AppError::bad(format!("no {} template named '{}': create it under Templates first", c.channel.as_str(), c.template)));
     }
     let (status, at) = match (c.scheduled_at, c.start) {
         (Some(at), _) => ("scheduled", Some(at)),
@@ -152,9 +148,7 @@ pub async fn create(State(app): State<App>, Json(c): Json<CampaignIn>) -> ApiRes
 }
 
 pub async fn list(State(app): State<App>) -> ApiResult<Json<Vec<Value>>> {
-    let rows: Vec<Campaign> = sqlx::query_as("SELECT * FROM campaigns ORDER BY created_at DESC LIMIT 200")
-        .fetch_all(&app.db)
-        .await?;
+    let rows: Vec<Campaign> = sqlx::query_as("SELECT * FROM campaigns ORDER BY created_at DESC LIMIT 200").fetch_all(&app.db).await?;
     Ok(Json(rows.iter().map(Campaign::view).collect()))
 }
 
@@ -165,10 +159,7 @@ pub async fn get(State(app): State<App>, Path(id): Path<Uuid>) -> ApiResult<Json
 
 /// 404 if the campaign doesn't exist, else 409 naming its current state.
 async fn invalid_transition(app: &App, id: Uuid, verb: &str) -> ApiResult<Json<Value>> {
-    let st: Option<String> = sqlx::query_scalar("SELECT status FROM campaigns WHERE id = $1")
-        .bind(id)
-        .fetch_optional(&app.db)
-        .await?;
+    let st: Option<String> = sqlx::query_scalar("SELECT status FROM campaigns WHERE id = $1").bind(id).fetch_optional(&app.db).await?;
     match st {
         None => Err(AppError::not_found("campaign not found")),
         Some(s) => Err(AppError::conflict(format!("cannot {verb} a campaign that is {s}"))),
@@ -188,11 +179,7 @@ pub struct StartIn {
     scheduled_at: Option<DateTime<Utc>>,
 }
 
-pub async fn start(
-    State(app): State<App>,
-    Path(id): Path<Uuid>,
-    body: Option<Json<StartIn>>,
-) -> ApiResult<Json<Value>> {
+pub async fn start(State(app): State<App>, Path(id): Path<Uuid>, body: Option<Json<StartIn>>) -> ApiResult<Json<Value>> {
     let at = body.and_then(|b| b.0.scheduled_at).unwrap_or_else(Utc::now);
     let row: Option<Campaign> = sqlx::query_as(
         "UPDATE campaigns SET status = 'scheduled', scheduled_at = $2, updated_at = now()
@@ -376,10 +363,7 @@ struct Target {
 async fn snapshot(app: &App, c: &Campaign, seg: &crate::rules::Segment, ch: Channel) -> ApiResult<i64> {
     let mut tx = app.db.begin().await?;
     // Big cohorts take a while to snapshot: hold the lease long enough.
-    sqlx::query("UPDATE campaigns SET locked_until = now() + interval '30 minutes' WHERE id = $1")
-        .bind(c.id)
-        .execute(&mut *tx)
-        .await?;
+    sqlx::query("UPDATE campaigns SET locked_until = now() + interval '30 minutes' WHERE id = $1").bind(c.id).execute(&mut *tx).await?;
     sqlx::query("DELETE FROM campaign_audience WHERE campaign_id = $1").bind(c.id).execute(&mut *tx).await?;
     let mut qb = QueryBuilder::<Postgres>::new("INSERT INTO campaign_audience (campaign_id, user_id) SELECT ");
     qb.push_bind(c.id).push(", c.user_id FROM contacts c");
@@ -564,10 +548,8 @@ async fn run(app: &App, c: Campaign) -> ApiResult<()> {
                     obj.insert("first_name".into(), json!(t.first_name));
                     obj.insert("last_name".into(), json!(t.last_name));
                     if !attr_keys.is_empty() {
-                        let picked: serde_json::Map<String, Value> = attr_keys
-                            .iter()
-                            .filter_map(|k| t.attributes.as_ref()?.get(k).map(|v| (k.clone(), v.clone())))
-                            .collect();
+                        let picked: serde_json::Map<String, Value> =
+                            attr_keys.iter().filter_map(|k| t.attributes.as_ref()?.get(k).map(|v| (k.clone(), v.clone()))).collect();
                         obj.insert("attributes".into(), Value::Object(picked));
                     }
                 }
@@ -599,8 +581,7 @@ async fn run(app: &App, c: Campaign) -> ApiResult<()> {
         counter!("campaign_suppressed_total", "campaign" => id.clone(), "reason" => "invalid").increment(invalid as u64);
         counter!("campaign_suppressed_total", "campaign" => id.clone(), "reason" => "unreachable").increment(n_gone as u64);
         if targeted > 0 {
-            gauge!("campaign_progress_ratio", "campaign" => id.clone())
-                .set(((enqueued + suppressed) as f64 / targeted as f64).min(1.0));
+            gauge!("campaign_progress_ratio", "campaign" => id.clone()).set(((enqueued + suppressed) as f64 / targeted as f64).min(1.0));
         }
 
         // Always record what this chunk did (it was already sent, even if the campaign

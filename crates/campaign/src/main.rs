@@ -47,14 +47,11 @@ const ADMIN_HTML: &str = include_str!("../ui/index.html");
 
 /// GET /v1/stats — overview numbers for the admin UI (cheap queries only).
 async fn stats(State(app): State<App>) -> error::ApiResult<axum::Json<serde_json::Value>> {
-    let contacts: Option<f32> = sqlx::query_scalar("SELECT reltuples FROM pg_class WHERE relname = 'contacts'")
-        .fetch_optional(&app.db)
-        .await?;
+    let contacts: Option<f32> =
+        sqlx::query_scalar("SELECT reltuples FROM pg_class WHERE relname = 'contacts'").fetch_optional(&app.db).await?;
     let devices: i64 = sqlx::query_scalar("SELECT count(*) FROM devices").fetch_one(&app.db).await?;
     let segments: i64 = sqlx::query_scalar("SELECT count(*) FROM segments").fetch_one(&app.db).await?;
-    let by: Vec<(String, i64)> = sqlx::query_as("SELECT status, count(*) FROM campaigns GROUP BY status")
-        .fetch_all(&app.db)
-        .await?;
+    let by: Vec<(String, i64)> = sqlx::query_as("SELECT status, count(*) FROM campaigns GROUP BY status").fetch_all(&app.db).await?;
     Ok(axum::Json(serde_json::json!({
         // reltuples is -1 before the first ANALYZE on PG14+
         "contacts_estimate": contacts.unwrap_or(0.0).max(0.0) as i64,
@@ -105,10 +102,7 @@ async fn main() -> anyhow::Result<()> {
         redis,
         http: reqwest::Client::builder().timeout(Duration::from_secs(30)).build()?,
         api_url: env_or("NOTIFY_API_URL", "http://localhost:8080"),
-        phone: imports::PhoneCfg {
-            cc: env_or("DEFAULT_COUNTRY_CODE", "880"),
-            national_len: env_parse("NATIONAL_NUMBER_LEN", 10),
-        },
+        phone: imports::PhoneCfg { cc: env_or("DEFAULT_COUNTRY_CODE", "880"), national_len: env_parse("NATIONAL_NUMBER_LEN", 10) },
         identity_enabled: identity.is_some(),
         sync_now: Arc::new(tokio::sync::Notify::new()),
         api_key,
@@ -165,9 +159,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/users", get(auth::list_users).post(auth::create_user))
         .route("/users/{id}", patch(auth::update_user))
         .route_layer(middleware::from_fn_with_state(app.clone(), auth::require_auth));
-    let public = Router::new()
-        .route("/auth/login", post(auth::login))
-        .route("/auth/logout", post(auth::logout));
+    let public = Router::new().route("/auth/login", post(auth::login)).route("/auth/logout", post(auth::logout));
     let v1 = v1.merge(public).layer(middleware::from_fn(auth::origin_guard));
 
     let router = Router::new()

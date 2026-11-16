@@ -37,8 +37,7 @@ impl ClientContext for LagContext {
                 if *pid < 0 || p.consumer_lag < 0 {
                     continue;
                 }
-                gauge!("kafka_consumer_lag", "topic" => topic.clone(), "partition" => pid.to_string())
-                    .set(p.consumer_lag as f64);
+                gauge!("kafka_consumer_lag", "topic" => topic.clone(), "partition" => pid.to_string()).set(p.consumer_lag as f64);
             }
         }
     }

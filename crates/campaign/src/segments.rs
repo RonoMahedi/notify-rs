@@ -38,15 +38,13 @@ pub async fn create(State(app): State<App>, Json(s): Json<SegmentIn>) -> ApiResu
         return Err(AppError::bad("name must be 1..=200 chars"));
     }
     check_segment(&s.kind, &s.rule)?;
-    let seg: Segment = sqlx::query_as(
-        "INSERT INTO segments (id, name, kind, rule) VALUES ($1, $2, $3, $4) RETURNING *",
-    )
-    .bind(Uuid::now_v7())
-    .bind(name)
-    .bind(&s.kind)
-    .bind(if s.kind == "rule" { s.rule } else { None })
-    .fetch_one(&app.db)
-    .await?;
+    let seg: Segment = sqlx::query_as("INSERT INTO segments (id, name, kind, rule) VALUES ($1, $2, $3, $4) RETURNING *")
+        .bind(Uuid::now_v7())
+        .bind(name)
+        .bind(&s.kind)
+        .bind(if s.kind == "rule" { s.rule } else { None })
+        .fetch_one(&app.db)
+        .await?;
     Ok((StatusCode::CREATED, Json(seg)))
 }
 
@@ -97,9 +95,7 @@ pub async fn count(app: &App, seg: &Segment, channel: Option<Channel>) -> ApiRes
 
 async fn preview_inner(app: &App, seg: &Segment, channel: Option<Channel>) -> ApiResult<Value> {
     let total = count(app, seg, channel).await?;
-    let mut qb = QueryBuilder::<Postgres>::new(
-        "SELECT c.user_id, c.email, c.phone, c.first_name, c.country, c.attributes FROM contacts c",
-    );
+    let mut qb = QueryBuilder::<Postgres>::new("SELECT c.user_id, c.email, c.phone, c.first_name, c.country, c.attributes FROM contacts c");
     push_audience(&mut qb, seg, channel).map_err(AppError::bad)?;
     qb.push(" LIMIT 10");
     let sample: Vec<(String, Option<String>, Option<String>, Option<String>, Option<String>, Value)> =
@@ -131,11 +127,7 @@ pub struct ChannelQ {
     channel: Option<Channel>,
 }
 
-pub async fn preview_saved(
-    State(app): State<App>,
-    Path(id): Path<Uuid>,
-    Query(q): Query<ChannelQ>,
-) -> ApiResult<Json<Value>> {
+pub async fn preview_saved(State(app): State<App>, Path(id): Path<Uuid>, Query(q): Query<ChannelQ>) -> ApiResult<Json<Value>> {
     let seg = load(&app, id).await?;
     Ok(Json(preview_inner(&app, &seg, q.channel).await?))
 }

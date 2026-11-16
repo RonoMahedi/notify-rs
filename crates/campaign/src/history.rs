@@ -280,7 +280,12 @@ pub struct FeedQ {
     limit: Option<i64>,
 }
 
-fn filters(qb: &mut QueryBuilder<'_, Postgres>, status: &Option<String>, channel: &Option<String>, campaign: Option<Uuid>) -> ApiResult<()> {
+fn filters(
+    qb: &mut QueryBuilder<'_, Postgres>,
+    status: &Option<String>,
+    channel: &Option<String>,
+    campaign: Option<Uuid>,
+) -> ApiResult<()> {
     if let Some(s) = status.as_deref().filter(|s| !s.is_empty()) {
         if !STATUSES.contains(&s) {
             return Err(AppError::bad("status must be sent, retrying, failed, expired or suppressed"));
@@ -331,7 +336,8 @@ pub async fn summary(State(app): State<App>, Query(q): Query<SummaryQ>) -> ApiRe
     let mut tx = app.db.begin().await?;
     sqlx::query("SET LOCAL statement_timeout = '10s'").execute(&mut *tx).await?;
 
-    let mut qb = QueryBuilder::<Postgres>::new("SELECT e.status, count(*) FROM delivery_events e WHERE e.ts > now() - make_interval(mins => ");
+    let mut qb =
+        QueryBuilder::<Postgres>::new("SELECT e.status, count(*) FROM delivery_events e WHERE e.ts > now() - make_interval(mins => ");
     qb.push_bind(minutes).push(")");
     filters(&mut qb, &None, &q.channel, q.campaign_id)?;
     qb.push(" GROUP BY e.status");

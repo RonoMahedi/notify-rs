@@ -28,9 +28,15 @@ const MAX_LIST: usize = 10_000;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum Rule {
-    All { all: Vec<Rule> },
-    Any { any: Vec<Rule> },
-    Not { not: Box<Rule> },
+    All {
+        all: Vec<Rule>,
+    },
+    Any {
+        any: Vec<Rule>,
+    },
+    Not {
+        not: Box<Rule>,
+    },
     Cond {
         field: String,
         op: Op,
@@ -80,11 +86,7 @@ fn parse_field(f: &str) -> Result<Field, String> {
         "created_at" => Field::Time("c.created_at"),
         "updated_at" => Field::Time("c.updated_at"),
         other => match other.strip_prefix("attributes.") {
-            Some(k)
-                if !k.is_empty()
-                    && k.len() <= 64
-                    && k.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') =>
-            {
+            Some(k) if !k.is_empty() && k.len() <= 64 && k.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') => {
                 Field::Attr(k.to_string())
             }
             _ => {
@@ -125,9 +127,7 @@ pub fn parse_time(v: &Value) -> Result<DateTime<Utc>, String> {
     if let Ok(t) = DateTime::parse_from_rfc3339(s) {
         return Ok(t.with_timezone(&Utc));
     }
-    NaiveDate::parse_from_str(s, "%Y-%m-%d")
-        .map(|d| d.and_hms_opt(0, 0, 0).unwrap().and_utc())
-        .map_err(|_| format!("invalid date '{s}'"))
+    NaiveDate::parse_from_str(s, "%Y-%m-%d").map(|d| d.and_hms_opt(0, 0, 0).unwrap().and_utc()).map_err(|_| format!("invalid date '{s}'"))
 }
 
 /// "30d" / "12h" / "90m" / "45s" / "2w" -> seconds.
@@ -191,16 +191,10 @@ fn cond(field: &str, op: Op, value: &Value, qb: &mut QueryBuilder<'_, Postgres>)
                 qb.push(col).push(cmp_sym(op)).push_bind(parse_time(value)?);
             }
             Op::Within => {
-                qb.push(col)
-                    .push(" >= now() - make_interval(secs => ")
-                    .push_bind(parse_duration(value)? as f64)
-                    .push(")");
+                qb.push(col).push(" >= now() - make_interval(secs => ").push_bind(parse_duration(value)? as f64).push(")");
             }
             Op::OlderThan => {
-                qb.push(col)
-                    .push(" < now() - make_interval(secs => ")
-                    .push_bind(parse_duration(value)? as f64)
-                    .push(")");
+                qb.push(col).push(" < now() - make_interval(secs => ").push_bind(parse_duration(value)? as f64).push(")");
             }
             Op::Exists => {
                 qb.push(col).push(" IS NOT NULL");
@@ -226,11 +220,7 @@ fn cond(field: &str, op: Op, value: &Value, qb: &mut QueryBuilder<'_, Postgres>)
                 if op == Op::NotIn {
                     qb.push("NOT ");
                 }
-                qb.push("(")
-                    .push_bind(value.clone())
-                    .push(" @> jsonb_build_array(c.attributes -> ")
-                    .push_bind(key)
-                    .push("))");
+                qb.push("(").push_bind(value.clone()).push(" @> jsonb_build_array(c.attributes -> ").push_bind(key).push("))");
             }
             Op::Gt | Op::Gte | Op::Lt | Op::Lte => {
                 if !value.is_number() {
@@ -247,10 +237,7 @@ fn cond(field: &str, op: Op, value: &Value, qb: &mut QueryBuilder<'_, Postgres>)
                     .push(")");
             }
             Op::Contains => {
-                qb.push("(c.attributes ->> ")
-                    .push_bind(key)
-                    .push(") ILIKE ")
-                    .push_bind(like_pattern(&as_text(value)?));
+                qb.push("(c.attributes ->> ").push_bind(key).push(") ILIKE ").push_bind(like_pattern(&as_text(value)?));
             }
             Op::Exists => {
                 qb.push("c.attributes ? ").push_bind(key);
@@ -264,12 +251,7 @@ fn cond(field: &str, op: Op, value: &Value, qb: &mut QueryBuilder<'_, Postgres>)
     Ok(())
 }
 
-fn compile_inner(
-    rule: &Rule,
-    qb: &mut QueryBuilder<'_, Postgres>,
-    depth: usize,
-    n: &mut usize,
-) -> Result<(), String> {
+fn compile_inner(rule: &Rule, qb: &mut QueryBuilder<'_, Postgres>, depth: usize, n: &mut usize) -> Result<(), String> {
     if depth > MAX_DEPTH {
         return Err(format!("rule nesting deeper than {MAX_DEPTH}"));
     }
@@ -347,11 +329,7 @@ pub fn reach_sql(ch: Channel) -> &'static str {
 }
 
 /// Appends `WHERE ...` selecting the segment's reachable, active contacts (alias `c`).
-pub fn push_audience(
-    qb: &mut QueryBuilder<'_, Postgres>,
-    seg: &Segment,
-    channel: Option<Channel>,
-) -> Result<(), String> {
+pub fn push_audience(qb: &mut QueryBuilder<'_, Postgres>, seg: &Segment, channel: Option<Channel>) -> Result<(), String> {
     qb.push(" WHERE c.status = 'active'");
     if let Some(ch) = channel {
         qb.push(" AND ").push(reach_sql(ch));

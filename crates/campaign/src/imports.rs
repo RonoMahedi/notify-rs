@@ -71,12 +71,7 @@ pub fn normalize_email(raw: &str) -> Option<String> {
 }
 
 fn norm_header(h: &str) -> String {
-    let s: String = h
-        .trim()
-        .to_lowercase()
-        .chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
-        .collect();
+    let s: String = h.trim().to_lowercase().chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '_' }).collect();
     let s = s.trim_matches('_').to_string();
     match s.as_str() {
         "mobile" | "mobile_number" | "mobile_no" | "phone_number" | "phone_no" | "msisdn" | "cell" => "phone".into(),
@@ -168,19 +163,10 @@ fn read_grid(filename: &str, bytes: Vec<u8>) -> Result<(Vec<String>, Vec<Vec<Opt
         }
         return Ok((header, rows));
     }
-    let mut wb = open_workbook_auto_from_rs(Cursor::new(bytes))
-        .map_err(|e| format!("not a readable Excel/ODS file: {e}"))?;
-    let range = wb
-        .worksheet_range_at(0)
-        .ok_or("workbook has no sheets")?
-        .map_err(|e| format!("reading first sheet: {e}"))?;
+    let mut wb = open_workbook_auto_from_rs(Cursor::new(bytes)).map_err(|e| format!("not a readable Excel/ODS file: {e}"))?;
+    let range = wb.worksheet_range_at(0).ok_or("workbook has no sheets")?.map_err(|e| format!("reading first sheet: {e}"))?;
     let mut it = range.rows();
-    let header = it
-        .next()
-        .ok_or("sheet is empty")?
-        .iter()
-        .map(|c| xlsx_cell(c).and_then(|v| cell_text(&v)).unwrap_or_default())
-        .collect();
+    let header = it.next().ok_or("sheet is empty")?.iter().map(|c| xlsx_cell(c).and_then(|v| cell_text(&v)).unwrap_or_default()).collect();
     let rows: Vec<Vec<Option<Value>>> = it.map(|r| r.iter().map(xlsx_cell).collect()).collect();
     if rows.len() > MAX_ROWS {
         return Err(format!("file has more than {MAX_ROWS} rows; split it"));
@@ -252,13 +238,12 @@ async fn resolve_ids(app: &App, rows: &mut [ContactRow]) -> anyhow::Result<()> {
     if emails.is_empty() && phones.is_empty() {
         return Ok(());
     }
-    let found: Vec<(String, Option<String>, Option<String>)> = sqlx::query_as(
-        "SELECT user_id, email, phone FROM contacts WHERE email = ANY($1) OR phone = ANY($2)",
-    )
-    .bind(&emails)
-    .bind(&phones)
-    .fetch_all(&app.db)
-    .await?;
+    let found: Vec<(String, Option<String>, Option<String>)> =
+        sqlx::query_as("SELECT user_id, email, phone FROM contacts WHERE email = ANY($1) OR phone = ANY($2)")
+            .bind(&emails)
+            .bind(&phones)
+            .fetch_all(&app.db)
+            .await?;
     let mut by_email = HashMap::new();
     let mut by_phone = HashMap::new();
     for (id, e, p) in found {
@@ -270,15 +255,12 @@ async fn resolve_ids(app: &App, rows: &mut [ContactRow]) -> anyhow::Result<()> {
         }
     }
     for r in rows.iter_mut().filter(|r| r.user_id.is_none()) {
-        let existing = r
-            .email
-            .as_ref()
-            .and_then(|e| by_email.get(e))
-            .or_else(|| r.phone.as_ref().and_then(|p| by_phone.get(p)));
+        let existing = r.email.as_ref().and_then(|e| by_email.get(e)).or_else(|| r.phone.as_ref().and_then(|p| by_phone.get(p)));
         r.user_id = Some(match existing {
             Some(id) => id.clone(),
             None => {
-                let key = r.email.as_ref().map(|e| format!("email:{e}")).or_else(|| r.phone.as_ref().map(|p| format!("phone:{p}"))).unwrap();
+                let key =
+                    r.email.as_ref().map(|e| format!("email:{e}")).or_else(|| r.phone.as_ref().map(|p| format!("phone:{p}"))).unwrap();
                 format!("imp-{}", Uuid::new_v5(&Uuid::NAMESPACE_URL, key.as_bytes()))
             }
         });
@@ -364,13 +346,7 @@ async fn process(app: App, import_id: Uuid, filename: String, bytes: Vec<u8>, se
     }
 }
 
-async fn process_inner(
-    app: &App,
-    import_id: Uuid,
-    filename: &str,
-    bytes: Vec<u8>,
-    segment_id: Option<Uuid>,
-) -> anyhow::Result<()> {
+async fn process_inner(app: &App, import_id: Uuid, filename: &str, bytes: Vec<u8>, segment_id: Option<Uuid>) -> anyhow::Result<()> {
     let (header, grid) = read_grid(filename, bytes).map_err(anyhow::Error::msg)?;
     let (rows, errors) = parse_rows(&header, grid, &app.phone).map_err(anyhow::Error::msg)?;
     let total = (rows.len() + errors.len()) as i64;
@@ -407,10 +383,7 @@ async fn process_inner(
             .await?;
         counter!("import_rows_total", "result" => "imported").increment(chunk.len() as u64);
     }
-    sqlx::query("UPDATE imports SET status = 'completed', finished_at = now() WHERE id = $1")
-        .bind(import_id)
-        .execute(&app.db)
-        .await?;
+    sqlx::query("UPDATE imports SET status = 'completed', finished_at = now() WHERE id = $1").bind(import_id).execute(&app.db).await?;
     tracing::info!(%import_id, total, "import completed");
     Ok(())
 }
@@ -455,11 +428,7 @@ pub async fn create(State(app): State<App>, mut mp: Multipart) -> ApiResult<(Sta
     let segment_id = match &segment_name {
         Some(name) => {
             let id = Uuid::now_v7();
-            sqlx::query("INSERT INTO segments (id, name, kind) VALUES ($1, $2, 'static')")
-                .bind(id)
-                .bind(name)
-                .execute(&app.db)
-                .await?;
+            sqlx::query("INSERT INTO segments (id, name, kind) VALUES ($1, $2, 'static')").bind(id).bind(name).execute(&app.db).await?;
             Some(id)
         }
         None => None,
@@ -476,10 +445,7 @@ pub async fn create(State(app): State<App>, mut mp: Multipart) -> ApiResult<(Sta
 }
 
 pub async fn get(State(app): State<App>, Path(id): Path<Uuid>) -> ApiResult<Json<Import>> {
-    let row = sqlx::query_as::<_, Import>("SELECT * FROM imports WHERE id = $1")
-        .bind(id)
-        .fetch_one(&app.db)
-        .await?;
+    let row = sqlx::query_as::<_, Import>("SELECT * FROM imports WHERE id = $1").bind(id).fetch_one(&app.db).await?;
     Ok(Json(row))
 }
 
@@ -557,7 +523,12 @@ mod tests {
 
     #[test]
     fn dedupes_and_merges() {
-        let a = ContactRow { user_id: Some("u1".into()), email: Some("a@x.com".into()), attributes: Map::from_iter([("p".to_string(), json!(1))]), ..Default::default() };
+        let a = ContactRow {
+            user_id: Some("u1".into()),
+            email: Some("a@x.com".into()),
+            attributes: Map::from_iter([("p".to_string(), json!(1))]),
+            ..Default::default()
+        };
         let b = ContactRow { user_id: Some("u1".into()), phone: Some("+8801712345678".into()), ..Default::default() };
         let out = dedupe(vec![a, b]);
         assert_eq!(out.len(), 1);

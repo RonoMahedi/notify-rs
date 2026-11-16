@@ -64,10 +64,7 @@ impl Provider for MockProvider {
     async fn send(&self, _env: &Envelope, _content: &Content) -> SendResult {
         let (delay, roll) = {
             let mut rng = rand::rng();
-            (
-                self.base_latency_ms + rng.random_range(0..=self.jitter_ms),
-                rng.random::<f64>(),
-            )
+            (self.base_latency_ms + rng.random_range(0..=self.jitter_ms), rng.random::<f64>())
         };
         tokio::time::sleep(Duration::from_millis(delay)).await;
         if roll < self.permanent_rate {

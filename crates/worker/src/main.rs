@@ -13,6 +13,7 @@ use std::{
 };
 
 use axum::{routing::get, Router};
+use common::template::{self, Template};
 use common::{
     config::{env_or, env_parse},
     kafka,
@@ -21,7 +22,6 @@ use common::{
 use futures::StreamExt;
 use governor::{DefaultDirectRateLimiter, Quota, RateLimiter};
 use metrics::{counter, gauge, histogram};
-use common::template::{self, Template};
 use provider::{Content, MockProvider, Provider, ProviderError};
 use rand::Rng;
 use rdkafka::{
@@ -183,8 +183,7 @@ async fn precheck(ctx: &Ctx, envs: &[Envelope]) -> Vec<Precheck> {
     }
     let mut pipe = redis::pipe();
     for e in envs {
-        pipe.get(status_key(&e.id))
-            .sismember(optout_key(&e.user_id), e.channel.as_str());
+        pipe.get(status_key(&e.id)).sismember(optout_key(&e.user_id), e.channel.as_str());
         if needs_tokens(e) {
             pipe.smembers(devices_key(&e.user_id));
         }
@@ -209,10 +208,7 @@ async fn precheck(ctx: &Ctx, envs: &[Envelope]) -> Vec<Precheck> {
                 vec![]
             };
             Precheck {
-                already_terminal: redis::from_redis_value::<Option<String>>(st)
-                    .ok()
-                    .flatten()
-                    .is_some_and(|s| Status::is_terminal_str(&s)),
+                already_terminal: redis::from_redis_value::<Option<String>>(st).ok().flatten().is_some_and(|s| Status::is_terminal_str(&s)),
                 opted_out: redis::from_redis_value::<bool>(opt).unwrap_or(false),
                 tokens,
             }
@@ -331,7 +327,14 @@ async fn deliver(ctx: &Ctx, env: &Envelope, pre: Precheck, tpl: Option<Arc<Templ
             histogram!("notification_e2e_latency_seconds",
                 "channel" => env.channel.as_str(), "priority" => env.priority.as_str())
             .record(e2e);
-            Delivered { outcome: Outcome::Sent, error: None, provider: pname, content: Some(content), hide_content: tpl.hide_content, dead_tokens }
+            Delivered {
+                outcome: Outcome::Sent,
+                error: None,
+                provider: pname,
+                content: Some(content),
+                hide_content: tpl.hide_content,
+                dead_tokens,
+            }
         }
         Err(ProviderError::Transient(reason)) if (env.attempt as usize) < RETRY_TIERS.len() => {
             let (topic, delay) = RETRY_TIERS[env.attempt as usize];
@@ -341,9 +344,15 @@ async fn deliver(ctx: &Ctx, env: &Envelope, pre: Precheck, tpl: Option<Arc<Templ
             next.not_before_ms = now_ms() + delay + jitter;
             tracing::debug!(id = %env.id, %reason, topic, "scheduling retry");
             publish(ctx, topic, &next).await;
-            counter!("notifications_retried_total", "channel" => env.channel.as_str(), "tier" => topic)
-                .increment(1);
-            Delivered { outcome: Outcome::Retry, error: Some(format!("{reason} (will retry)")), provider: pname, content: Some(content), hide_content: tpl.hide_content, dead_tokens }
+            counter!("notifications_retried_total", "channel" => env.channel.as_str(), "tier" => topic).increment(1);
+            Delivered {
+                outcome: Outcome::Retry,
+                error: Some(format!("{reason} (will retry)")),
+                provider: pname,
+                content: Some(content),
+                hide_content: tpl.hide_content,
+                dead_tokens,
+            }
         }
         Err(e) => {
             tracing::info!(id = %env.id, err = %e, attempt = env.attempt, "sending to DLQ");
@@ -352,7 +361,14 @@ async fn deliver(ctx: &Ctx, env: &Envelope, pre: Precheck, tpl: Option<Arc<Templ
                 ProviderError::Transient(r) => format!("{r} (retries exhausted)"),
                 ProviderError::Permanent(r) => r,
             };
-            Delivered { outcome: Outcome::Dlq, error: Some(why), provider: pname, content: Some(content), hide_content: tpl.hide_content, dead_tokens }
+            Delivered {
+                outcome: Outcome::Dlq,
+                error: Some(why),
+                provider: pname,
+                content: Some(content),
+                hide_content: tpl.hide_content,
+                dead_tokens,
+            }
         }
     }
 }
@@ -414,8 +430,7 @@ async fn run(ctx: Arc<Ctx>, consumer: StreamConsumer<kafka::LagContext>) {
     let concurrency: usize = env_parse("CONCURRENCY", 1_000);
     let batch_wait = Duration::from_millis(env_parse("BATCH_WAIT_MS", 20));
     let max_inflight: usize = env_parse::<usize>("INFLIGHT_BATCHES", 4).max(1);
-    let mut inflight: std::collections::VecDeque<tokio::task::JoinHandle<TopicPartitionList>> =
-        std::collections::VecDeque::new();
+    let mut inflight: std::collections::VecDeque<tokio::task::JoinHandle<TopicPartitionList>> = std::collections::VecDeque::new();
 
     loop {
         let mut batch: Vec<OwnedMessage> = Vec::with_capacity(max_batch);
@@ -489,10 +504,7 @@ async fn run(ctx: Arc<Ctx>, consumer: StreamConsumer<kafka::LagContext>) {
     }
 }
 
-fn store_batch_offsets(
-    consumer: &StreamConsumer<kafka::LagContext>,
-    done: Result<TopicPartitionList, tokio::task::JoinError>,
-) {
+fn store_batch_offsets(consumer: &StreamConsumer<kafka::LagContext>, done: Result<TopicPartitionList, tokio::task::JoinError>) {
     match done {
         Ok(tpl) => {
             if let Err(e) = consumer.store_offsets(&tpl) {
@@ -507,37 +519,39 @@ fn store_batch_offsets(
 /// Delivery history events. Best effort: losing one never blocks or redoes a delivery.
 async fn publish_events(ctx: &Ctx, done: &[(Envelope, Delivered)]) {
     let now = now_ms();
-    let sends = done.iter().filter_map(|(env, d)| {
-        let status = d.outcome.status()?; // duplicates aren't new history
-        let ev = DeliveryEvent {
-            ts_ms: now,
-            notification_id: env.id,
-            user_id: env.user_id.clone(),
-            channel: env.channel,
-            priority: env.priority,
-            template: env.template.clone(),
-            campaign_id: env.campaign_id.clone(),
-            status,
-            attempt: env.attempt,
-            provider: d.provider.map(str::to_string),
-            recipient: env.address(),
-            error: d.error.clone(),
-            latency_ms: now.saturating_sub(env.created_at_ms),
-            title: if d.hide_content { None } else { d.content.as_ref().and_then(|c| c.title.clone()) },
-            body: d.content.as_ref().map(|c| {
-                if d.hide_content { "(hidden: this template is marked sensitive)".to_string() } else { c.body.chars().take(1000).collect() }
-            }),
-            dead_tokens: d.dead_tokens.clone(),
-        };
-        let payload = serde_json::to_vec(&ev).ok()?;
-        let key = ev.user_id;
-        Some(async move {
-            ctx.producer
-                .send(FutureRecord::to(EVENTS_TOPIC).key(&key).payload(&payload), Duration::from_secs(5))
-                .await
-                .is_ok()
-        })
-    });
+    let sends =
+        done.iter().filter_map(|(env, d)| {
+            let status = d.outcome.status()?; // duplicates aren't new history
+            let ev = DeliveryEvent {
+                ts_ms: now,
+                notification_id: env.id,
+                user_id: env.user_id.clone(),
+                channel: env.channel,
+                priority: env.priority,
+                template: env.template.clone(),
+                campaign_id: env.campaign_id.clone(),
+                status,
+                attempt: env.attempt,
+                provider: d.provider.map(str::to_string),
+                recipient: env.address(),
+                error: d.error.clone(),
+                latency_ms: now.saturating_sub(env.created_at_ms),
+                title: if d.hide_content { None } else { d.content.as_ref().and_then(|c| c.title.clone()) },
+                body: d.content.as_ref().map(|c| {
+                    if d.hide_content {
+                        "(hidden: this template is marked sensitive)".to_string()
+                    } else {
+                        c.body.chars().take(1000).collect()
+                    }
+                }),
+                dead_tokens: d.dead_tokens.clone(),
+            };
+            let payload = serde_json::to_vec(&ev).ok()?;
+            let key = ev.user_id;
+            Some(async move {
+                ctx.producer.send(FutureRecord::to(EVENTS_TOPIC).key(&key).payload(&payload), Duration::from_secs(5)).await.is_ok()
+            })
+        });
     let results = futures::future::join_all(sends).await;
     let failed = results.iter().filter(|ok| !**ok).count();
     counter!("worker_history_events_total", "result" => "ok").increment((results.len() - failed) as u64);
@@ -567,8 +581,7 @@ async fn process_batch(ctx: Arc<Ctx>, envs: Vec<Envelope>, concurrency: usize) {
                     "channel" => env.channel.as_str(), "outcome" => o.as_str())
                 .increment(1);
                 if let Some(c) = &env.campaign_id {
-                    counter!("campaign_notifications_total", "campaign" => c.clone(), "outcome" => o.as_str())
-                        .increment(1);
+                    counter!("campaign_notifications_total", "campaign" => c.clone(), "outcome" => o.as_str()).increment(1);
                 }
                 (env, d)
             }
@@ -576,8 +589,7 @@ async fn process_batch(ctx: Arc<Ctx>, envs: Vec<Envelope>, concurrency: usize) {
         .buffer_unordered(concurrency)
         .collect()
         .await;
-    let statuses: Vec<(uuid::Uuid, Status)> =
-        done.iter().filter_map(|(e, d)| d.outcome.status().map(|st| (e.id, st))).collect();
+    let statuses: Vec<(uuid::Uuid, Status)> = done.iter().filter_map(|(e, d)| d.outcome.status().map(|st| (e.id, st))).collect();
     write_statuses(&ctx, &statuses).await;
     publish_events(&ctx, &done).await;
     histogram!("worker_batch_duration_seconds").record(started.elapsed().as_secs_f64());
@@ -611,7 +623,13 @@ async fn main() -> anyhow::Result<()> {
 
     let addr = env_or("METRICS_ADDR", "0.0.0.0:9100");
     let app = Router::new()
-        .route("/metrics", get(move || { let h = handle.clone(); async move { h.render() } }))
+        .route(
+            "/metrics",
+            get(move || {
+                let h = handle.clone();
+                async move { h.render() }
+            }),
+        )
         .route("/healthz", get(|| async { "ok" }));
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     tokio::spawn(async move { axum::serve(listener, app).await });

@@ -5,8 +5,5 @@ pub fn env_or(key: &str, default: &str) -> String {
 }
 
 pub fn env_parse<T: FromStr>(key: &str, default: T) -> T {
-    std::env::var(key)
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(default)
+    std::env::var(key).ok().and_then(|v| v.parse().ok()).unwrap_or(default)
 }

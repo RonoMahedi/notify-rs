@@ -68,10 +68,7 @@ pub async fn run_loop(app: App, src: PgPool) {
 async fn sync_once(app: &App, src: &PgPool) -> anyhow::Result<u64> {
     let batch: i64 = common::config::env_parse("SYNC_BATCH", 5_000);
     let wm: Option<(NaiveDateTime, String)> =
-        sqlx::query_as("SELECT watermark_ts, watermark_id FROM sync_state WHERE source = $1")
-            .bind(SOURCE)
-            .fetch_optional(&app.db)
-            .await?;
+        sqlx::query_as("SELECT watermark_ts, watermark_id FROM sync_state WHERE source = $1").bind(SOURCE).fetch_optional(&app.db).await?;
     // Re-read a 2-minute overlap: catches rows whose transaction committed after we passed them.
     let (mut ts, mut id) = match wm {
         Some((ts, _)) if ts > DateTime::<Utc>::UNIX_EPOCH.naive_utc() => (ts - chrono::Duration::minutes(2), ZERO_UUID.to_string()),
@@ -126,9 +123,7 @@ async fn sync_once(app: &App, src: &PgPool) -> anyhow::Result<u64> {
         }
     }
     // Cheap estimate; count(*) on 10M rows every minute would be wasteful.
-    let est: Option<f32> = sqlx::query_scalar("SELECT reltuples FROM pg_class WHERE relname = 'contacts'")
-        .fetch_optional(&app.db)
-        .await?;
+    let est: Option<f32> = sqlx::query_scalar("SELECT reltuples FROM pg_class WHERE relname = 'contacts'").fetch_optional(&app.db).await?;
     gauge!("contacts_total_estimate").set(est.unwrap_or(0.0).max(0.0) as f64);
     Ok(total)
 }
@@ -197,9 +192,7 @@ pub struct SyncState {
 
 pub async fn status(State(app): State<App>) -> ApiResult<Json<Value>> {
     let rows: Vec<SyncState> =
-        sqlx::query_as("SELECT source, watermark_ts, rows_synced, last_run_at, last_error FROM sync_state")
-            .fetch_all(&app.db)
-            .await?;
+        sqlx::query_as("SELECT source, watermark_ts, rows_synced, last_run_at, last_error FROM sync_state").fetch_all(&app.db).await?;
     Ok(Json(json!({ "enabled": app.identity_enabled, "sources": rows })))
 }
 

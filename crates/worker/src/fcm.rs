@@ -71,7 +71,8 @@ impl Fcm {
             return Ok(None);
         }
         let raw = std::fs::read_to_string(&path).map_err(|e| anyhow::anyhow!("reading FCM_CREDENTIALS_FILE {path}: {e}"))?;
-        let mut sa: ServiceAccount = serde_json::from_str(&raw).map_err(|e| anyhow::anyhow!("{path} is not a Firebase service-account JSON: {e}"))?;
+        let mut sa: ServiceAccount =
+            serde_json::from_str(&raw).map_err(|e| anyhow::anyhow!("{path} is not a Firebase service-account JSON: {e}"))?;
         if let Ok(uri) = std::env::var("FCM_TOKEN_URI") {
             if !uri.is_empty() {
                 sa.token_uri = uri;
@@ -223,8 +224,7 @@ impl Provider for Fcm {
             Ok(t) => t,
             Err(e) => return SendResult::err(e),
         };
-        let mut results: Vec<PerToken> =
-            futures::future::join_all(tokens.iter().map(|t| self.send_one(env, content, t, &bearer))).await;
+        let mut results: Vec<PerToken> = futures::future::join_all(tokens.iter().map(|t| self.send_one(env, content, t, &bearer))).await;
         // Our access token was revoked or expired early: refresh once and retry those.
         if results.contains(&PerToken::Unauthenticated) {
             bearer = match self.access_token(true).await {
@@ -300,7 +300,8 @@ mod tests {
 
     #[test]
     fn rejects_a_bad_private_key() {
-        let sa = ServiceAccount { project_id: "p".into(), client_email: "e".into(), private_key: "nope".into(), token_uri: default_token_uri() };
+        let sa =
+            ServiceAccount { project_id: "p".into(), client_email: "e".into(), private_key: "nope".into(), token_uri: default_token_uri() };
         assert!(Fcm::new(sa, "https://fcm.googleapis.com".into(), false).is_err());
     }
 
@@ -314,7 +315,10 @@ mod tests {
     fn classifies_fcm_errors() {
         assert!(matches!(fcm_err(404, "UNREGISTERED", "Requested entity was not found."), PerToken::Dead(_)));
         assert!(matches!(fcm_err(403, "SENDER_ID_MISMATCH", ""), PerToken::Dead(_)));
-        assert!(matches!(fcm_err(400, "INVALID_ARGUMENT", "The registration token is not a valid FCM registration token"), PerToken::Dead(_)));
+        assert!(matches!(
+            fcm_err(400, "INVALID_ARGUMENT", "The registration token is not a valid FCM registration token"),
+            PerToken::Dead(_)
+        ));
         assert!(matches!(fcm_err(400, "INVALID_ARGUMENT", "Invalid JSON payload"), PerToken::Permanent(_)));
         assert!(matches!(fcm_err(429, "QUOTA_EXCEEDED", ""), PerToken::Transient(_)));
         assert!(matches!(fcm_err(503, "UNAVAILABLE", ""), PerToken::Transient(_)));

@@ -188,29 +188,17 @@ pub fn main_topic(c: Channel, p: Priority) -> String {
 }
 
 pub fn all_main_topics() -> Vec<String> {
-    Channel::ALL
-        .iter()
-        .flat_map(|c| Priority::ALL.iter().map(move |p| main_topic(*c, *p)))
-        .collect()
+    Channel::ALL.iter().flat_map(|c| Priority::ALL.iter().map(move |p| main_topic(*c, *p))).collect()
 }
 
 /// Tiered delay queues: attempt N goes to RETRY_TIERS[N].
-pub const RETRY_TIERS: [(&str, u64); 3] = [
-    ("notify.retry.5s", 5_000),
-    ("notify.retry.1m", 60_000),
-    ("notify.retry.10m", 600_000),
-];
+pub const RETRY_TIERS: [(&str, u64); 3] = [("notify.retry.5s", 5_000), ("notify.retry.1m", 60_000), ("notify.retry.10m", 600_000)];
 pub const DLQ_TOPIC: &str = "notify.dlq";
 
 /// Longest a batch from these topics can hold its consumer: the biggest retry delay
 /// among them plus its max jitter (delay / 5). 0 for main topics.
 pub fn max_retry_delay_ms(topics: &[String]) -> u64 {
-    RETRY_TIERS
-        .iter()
-        .filter(|(t, _)| topics.iter().any(|x| x == t))
-        .map(|(_, d)| d + d / 5)
-        .max()
-        .unwrap_or(0)
+    RETRY_TIERS.iter().filter(|(t, _)| topics.iter().any(|x| x == t)).map(|(_, d)| d + d / 5).max().unwrap_or(0)
 }
 /// Delivery history: one event per processing outcome (sent, retrying, failed, expired, suppressed).
 pub const EVENTS_TOPIC: &str = "notify.events";
@@ -286,10 +274,7 @@ pub fn optout_key(user_id: &str) -> String {
 }
 
 pub fn now_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_millis() as u64
+    SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64
 }
 
 #[cfg(test)]
@@ -353,10 +338,7 @@ mod tests {
 
     #[test]
     fn priority_defaults_to_normal() {
-        let r: NotificationRequest = serde_json::from_str(
-            r#"{"user_id":"u","channel":"sms","template":"otp"}"#,
-        )
-        .unwrap();
+        let r: NotificationRequest = serde_json::from_str(r#"{"user_id":"u","channel":"sms","template":"otp"}"#).unwrap();
         assert_eq!(r.priority, Priority::Normal);
     }
 }
