@@ -225,3 +225,7 @@ Tested with `tests/fcm.sh` against a fake Google server (`tests/fake_fcm.py`). I
 - busy → retry, invalid → failed and deleted, no device → clear reason
 - that a revoked access token is refreshed
 - validate-only mode
+
+## License
+
+[MIT](LICENSE). Contributions are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md).
