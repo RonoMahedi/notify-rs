@@ -162,6 +162,8 @@ or each sync run does a full table scan.
 
 ## Tests
 
+CI (`.github/workflows/ci.yml`) runs `cargo fmt --check`, `cargo clippy -D warnings`, `cargo test`, and a Docker image build on every push to `main` and every PR. The shell suites below need the running stack, so they aren't in CI.
+
 ```bash
 cargo test                 # 37 unit tests: rule engine (incl. SQL-injection cases), phone/email/Excel parsing, model
 tests/e2e.sh               # 58 end-to-end checks against the running stack (sync, import, cohorts, campaigns, bulk lane)

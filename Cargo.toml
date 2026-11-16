@@ -30,3 +30,7 @@ common = { path = "crates/common" }
 [profile.release]
 lto = "thin"
 codegen-units = 1
+
+[workspace.lints.clippy]
+# sqlx row tuples like Option<(Uuid, String, Option<String>, ...)> trip this; aliases wouldn't add clarity.
+type_complexity = "allow"

@@ -259,7 +259,7 @@ pub async fn dlq(State(app): State<App>, Query(q): Query<DlqQ>) -> ApiResult<Jso
                 }
             }
         }
-        out.sort_by(|a, b| b.created_at_ms.cmp(&a.created_at_ms));
+        out.sort_by_key(|m| std::cmp::Reverse(m.created_at_ms));
         out.truncate(n as usize);
         Ok((total, out))
     })

@@ -25,3 +25,6 @@ chrono = { version = "0.4.45", features = ["serde"] }
 csv = "1.4.0"
 argon2 = "0.5"
 sha2 = "0.10"
+
+[lints]
+workspace = true
