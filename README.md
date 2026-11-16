@@ -1,6 +1,6 @@
 # notify: a Rust notification system for 100M+/day
 
-Design doc: [ARCHITECTURE.md](ARCHITECTURE.md)
+Design doc: [ARCHITECTURE.md](ARCHITECTURE.md) · Adding email/SMS/push gateways: [docs/PROVIDERS.md](docs/PROVIDERS.md) · Contributing: [CONTRIBUTING.md](CONTRIBUTING.md)
 
 ## Run everything locally
 
@@ -59,7 +59,7 @@ cargo run --release --bin loadgen
 | `PROVIDER_TIMEOUT_MS` | 5000 | |
 | `MOCK_TRANSIENT_RATE` / `MOCK_PERMANENT_RATE` | 0.02 / 0.005 | mock provider failure injection |
 
-The providers are mocks (`crates/worker/src/provider.rs`). To go live, implement the `Provider` trait for FCM, APNs, SES, and Twilio.
+Push goes through Firebase when configured (see below). Email, SMS and in-app still use mock providers that only pretend to send. [docs/PROVIDERS.md](docs/PROVIDERS.md) explains where credentials go and how to add a real gateway.
 
 ## Campaigns (marketing)
 
