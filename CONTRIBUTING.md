@@ -17,7 +17,8 @@ New here? Good first areas are a **delivery provider** (an email or SMS gateway;
 | Path | What it is |
 |---|---|
 | `crates/api` | Ingest API: validates, deduplicates and writes notifications to Kafka |
-| `crates/worker` | Delivery workers: retries, rate limits, opt-outs, providers (`provider.rs`, `fcm.rs`) |
+| `crates/worker` | Delivery workers: retries, rate limits, opt-outs, providers (`fcm.rs`, `ses.rs`, `sslwireless.rs`, `inbox.rs`) |
+| `crates/gateway` | In-app gateway: WebSocket live feed and inbox REST for apps and browsers |
 | `crates/campaign` | Campaign service: contacts, cohorts, campaigns, templates, admin UI (`ui/index.html`), sign-in |
 | `crates/common` | Shared message model, Kafka setup, templates, metrics |
 | `crates/loadgen` | Synthetic load generator |
@@ -35,7 +36,7 @@ You need:
 - **Rust** (stable) with `rustfmt` and `clippy`: `rustup component add rustfmt clippy`
 - **Docker** with Compose v2
 - **Python 3** for the test helpers (standard library only)
-- For the browser test only: **Node.js** and **Google Chrome**
+- For the browser and in-app tests only: **Node.js** 22+ and (browser test) **Google Chrome**
 
 Start everything:
 
@@ -69,6 +70,7 @@ change against the running stack:
 | `tests/system.sh` | System tab: Kafka topics and groups, metrics, dead-letter queue |
 | `tests/auth.sh` | Sign-in security: hashing, cookies, CSRF, roles, lockout |
 | `tests/fcm.sh` | Firebase push against a fake Google server |
+| `tests/inapp.sh` | In-app inbox and WebSocket gateway (needs Node.js 22+) |
 | `tests/run_ui.sh` | Admin UI in headless Chrome |
 
 The README explains how to start from a clean database when you need exact counts. These suites

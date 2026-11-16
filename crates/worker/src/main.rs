@@ -3,6 +3,7 @@
 //! made effectively-once by a `done:{id}` dedup marker in Redis.
 
 mod fcm;
+mod inbox;
 mod provider;
 mod ses;
 mod sslwireless;
@@ -425,9 +426,30 @@ async fn build_ctx(redis: ConnectionManager) -> Ctx {
         }
         other => panic!("unknown EMAIL_PROVIDER {other:?}: use ses, or leave it empty for the mock"),
     };
-    gauge!("provider_info", "channel" => "in_app", "provider" => "mock (ws_gateway)", "mode" => "mock").set(1.0);
+    let in_app: Arc<dyn Provider> = match std::env::var("IN_APP_PROVIDER").unwrap_or_default().trim() {
+        "" | "mock" => {
+            gauge!("provider_info", "channel" => "in_app", "provider" => "mock (ws_gateway)", "mode" => "mock").set(1.0);
+            mock("ws_gateway", 2, 8)
+        }
+        "inbox" => {
+            // The inbox can live on its own Redis so it never competes with dedup markers for memory.
+            let conn = match std::env::var("INBOX_REDIS_URL").ok().filter(|u| !u.trim().is_empty()) {
+                Some(url) => {
+                    let client = redis::Client::open(url).expect("INBOX_REDIS_URL");
+                    ConnectionManager::new(client).await.expect("connecting to INBOX_REDIS_URL")
+                }
+                None => redis.clone(),
+            };
+            let max_items = env_parse("INBOX_MAX_ITEMS", common::inapp::DEFAULT_MAX_ITEMS);
+            let ttl = env_parse("INBOX_TTL_SECS", common::inapp::DEFAULT_TTL_SECS);
+            tracing::info!(max_items, ttl_secs = ttl, "in_app: Redis inbox + WebSocket gateway");
+            gauge!("provider_info", "channel" => "in_app", "provider" => "inbox", "mode" => "live").set(1.0);
+            Arc::new(inbox::Inbox::new(conn, max_items, ttl))
+        }
+        other => panic!("unknown IN_APP_PROVIDER {other:?}: use inbox, or leave it empty for the mock"),
+    };
     let providers: HashMap<Channel, Arc<dyn Provider>> =
-        HashMap::from([(Channel::Push, push), (Channel::Email, email), (Channel::Sms, sms), (Channel::InApp, mock("ws_gateway", 2, 8))]);
+        HashMap::from([(Channel::Push, push), (Channel::Email, email), (Channel::Sms, sms), (Channel::InApp, in_app)]);
     // Per-instance limits; the global limit is this x replica count (see ARCHITECTURE.md).
     let limiters = Channel::ALL
         .iter()

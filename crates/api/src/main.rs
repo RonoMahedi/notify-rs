@@ -29,11 +29,14 @@ struct AppState {
     producer: FutureProducer,
     redis: ConnectionManager,
     metrics: PrometheusHandle,
+    /// INAPP_TOKEN_SECRET, shared with the in-app gateway. None = token endpoint disabled.
+    inapp_secret: Option<std::sync::Arc<str>>,
 }
 
 enum ApiError {
     BadRequest(String),
     Overloaded,
+    Unavailable(String),
     Internal(String),
 }
 
@@ -42,6 +45,7 @@ impl IntoResponse for ApiError {
         let (code, msg) = match self {
             ApiError::BadRequest(m) => (StatusCode::BAD_REQUEST, m),
             ApiError::Overloaded => (StatusCode::SERVICE_UNAVAILABLE, "overloaded, retry later".into()),
+            ApiError::Unavailable(m) => (StatusCode::NOT_IMPLEMENTED, m),
             ApiError::Internal(m) => (StatusCode::INTERNAL_SERVER_ERROR, m),
         };
         let mut resp = (code, Json(serde_json::json!({ "error": msg }))).into_response();
@@ -194,7 +198,7 @@ async fn create_batch(State(s): State<AppState>, Json(b): Json<BatchRequest>) ->
             Ok(a) => BatchItem { id: Some(a.id), duplicate: a.duplicate, error: None },
             Err(ApiError::BadRequest(m)) => BatchItem { id: None, duplicate: false, error: Some(m) },
             Err(ApiError::Overloaded) => BatchItem { id: None, duplicate: false, error: Some("overloaded".into()) },
-            Err(ApiError::Internal(m)) => BatchItem { id: None, duplicate: false, error: Some(m) },
+            Err(ApiError::Internal(m) | ApiError::Unavailable(m)) => BatchItem { id: None, duplicate: false, error: Some(m) },
         })
         .collect();
     Ok((StatusCode::MULTI_STATUS, Json(items)))
@@ -209,6 +213,27 @@ async fn get_status(State(s): State<AppState>, Path(id): Path<Uuid>) -> Response
     }
 }
 
+#[derive(Deserialize)]
+struct InAppTokenRequest {
+    user_id: String,
+    ttl_seconds: Option<u64>,
+}
+
+/// Mints a short-lived token for one user to connect to the in-app gateway. Call it from your
+/// backend (after your own login) and hand the token to the app; never ship the secret.
+async fn inapp_token(State(s): State<AppState>, Json(r): Json<InAppTokenRequest>) -> Result<Json<serde_json::Value>, ApiError> {
+    let Some(secret) = s.inapp_secret.as_deref() else {
+        return Err(ApiError::Unavailable("in-app tokens are disabled: set INAPP_TOKEN_SECRET".into()));
+    };
+    if r.user_id.is_empty() || r.user_id.len() > 128 {
+        return Err(ApiError::BadRequest("user_id must be 1..=128 chars".into()));
+    }
+    let ttl = r.ttl_seconds.unwrap_or(900).clamp(30, 86_400);
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs();
+    let token = common::inapp::mint(secret, &r.user_id, now, ttl).map_err(|e| ApiError::Internal(e.to_string()))?;
+    Ok(Json(serde_json::json!({ "token": token, "expires_at": now + ttl })))
+}
+
 async fn index() -> Json<serde_json::Value> {
     Json(serde_json::json!({
         "service": "notify-api",
@@ -216,6 +241,7 @@ async fn index() -> Json<serde_json::Value> {
             "POST /v1/notifications": "enqueue one notification (202, or 200 if idempotent duplicate)",
             "POST /v1/notifications/batch": "enqueue up to 1000: {\"notifications\": [...]} (207)",
             "GET /v1/notifications/{id}": "status: queued | retrying | sent | failed | expired | suppressed",
+            "POST /v1/inapp/token": "token for the in-app WebSocket gateway: {\"user_id\": \"u42\", \"ttl_seconds\": 900}",
             "GET /healthz": "liveness",
             "GET /metrics": "Prometheus metrics"
         },
@@ -243,12 +269,26 @@ async fn main() -> anyhow::Result<()> {
     telemetry::init_tracing();
     let metrics = telemetry::init_metrics();
     let redis_client = redis::Client::open(env_or("REDIS_URL", "redis://127.0.0.1:16379"))?;
-    let state = AppState { producer: kafka::producer(), redis: ConnectionManager::new(redis_client).await?, metrics };
+    let inapp_secret = std::env::var("INAPP_TOKEN_SECRET").ok().filter(|v| !v.is_empty());
+    if let Some(sec) = &inapp_secret {
+        anyhow::ensure!(
+            sec.len() >= common::inapp::MIN_SECRET_LEN,
+            "INAPP_TOKEN_SECRET must be at least {} characters",
+            common::inapp::MIN_SECRET_LEN
+        );
+    }
+    let state = AppState {
+        producer: kafka::producer(),
+        redis: ConnectionManager::new(redis_client).await?,
+        metrics,
+        inapp_secret: inapp_secret.map(Into::into),
+    };
 
     let app = Router::new()
         .route("/v1/notifications", post(create))
         .route("/v1/notifications/batch", post(create_batch))
         .route("/v1/notifications/{id}", get(get_status))
+        .route("/v1/inapp/token", post(inapp_token))
         .route_layer(middleware::from_fn(track_http))
         .route("/", get(index))
         .route("/healthz", get(|| async { "ok" }))

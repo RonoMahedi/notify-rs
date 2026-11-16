@@ -16,7 +16,7 @@ push, an SMS gateway, an email service. This guide covers:
 | Push | Firebase Cloud Messaging (HTTP v1): `crates/worker/src/fcm.rs` | **Done.** Add credentials and it's live. Covers Android and, through Firebase, iOS. |
 | Email | Amazon SES (API v2): `crates/worker/src/ses.rs` | **Done.** Set `EMAIL_PROVIDER=ses` and its settings ([below](#amazon-ses)). SendGrid, SMTP and others need an adapter. |
 | SMS | SSL Wireless (ISMS Plus, API v3): `crates/worker/src/sslwireless.rs` | **Done.** Set `SMS_PROVIDER=sslwireless` and its settings ([below](#ssl-wireless)). Other gateways need an adapter. |
-| In-app | `MockProvider` | **Mock only.** Needs a WebSocket/realtime gateway. |
+| In-app | Redis inbox (`crates/worker/src/inbox.rs`) + WebSocket gateway (`crates/gateway`) | **Done.** Set `IN_APP_PROVIDER=inbox`; no external account needed ([below](#in-app-inbox-and-websocket-gateway)). |
 
 When a channel has no real provider configured, the worker uses the mock, so the whole pipeline
 and the dashboards work locally without any accounts. The admin UI's **System** tab shows which
@@ -394,6 +394,95 @@ retry tiers handle it. Each email is tagged with `notification_id`, `template`, 
 notification.
 
 Templates are plain text today; the email is sent as UTF-8 text, so Bengali works.
+
+### In-app: inbox and WebSocket gateway
+
+In-app notifications need no outside provider. Two parts work together:
+
+- **Worker (`IN_APP_PROVIDER=inbox`)** stores each notification in the user's inbox in Redis
+  (newest `INBOX_MAX_ITEMS`, default 100, kept for `INBOX_TTL_SECS`, default 30 days) and
+  publishes it. "Sent" means stored: a user who is offline sees it on the next connect.
+- **Gateway (`crates/gateway`, port 8070)** keeps WebSocket connections to apps and browsers and
+  pushes new items to the right user live. It also serves the inbox over REST. Every gateway
+  instance receives the feed, so you can run several behind any load balancer, without sticky
+  sessions.
+
+```text
+API → Kafka → worker ──ZADD inbox:{user} + PUBLISH inapp──▶ Redis ──▶ gateway(s) ──WebSocket──▶ app
+                                                                         ▲
+                                                 GET /v1/inbox, POST /v1/inbox/read
+```
+
+| Variable | Where | Meaning |
+|---|---|---|
+| `IN_APP_PROVIDER` | workers | `inbox`. Empty means the mock. |
+| `INAPP_TOKEN_SECRET` | API + gateway | At least 32 random characters. Signs user tokens. **Change the development default.** |
+| `INAPP_ALLOWED_ORIGINS` | gateway | Comma-separated web origins allowed to connect, e.g. `https://app.example.com`. Empty: any origin (fine for mobile apps). |
+| `INAPP_MAX_CONNECTIONS_PER_USER` | gateway | Default 10 (tabs and devices). |
+| `INBOX_MAX_ITEMS` / `INBOX_TTL_SECS` | workers / gateway | Inbox size and lifetime. |
+| `INBOX_REDIS_URL` | workers + gateway | Optional separate Redis for inboxes. Recommended in production so inboxes never compete for memory with the workers' delivery records. |
+
+#### Signing users in
+
+The app must never hold a secret. Your backend, after its own login, gets a short-lived token for
+that user and hands it to the app:
+
+```bash
+curl -X POST http://api:8080/v1/inapp/token -H 'content-type: application/json' \
+  -d '{"user_id": "u42", "ttl_seconds": 900}'
+# {"token": "eyJ...", "expires_at": 1767225600}
+```
+
+The token is a standard HS256 JWT (`sub` = user id, `aud` = `notify-inapp`, `exp`), so your
+backend can also mint it itself with any JWT library and `INAPP_TOKEN_SECRET`. The token is only
+checked when connecting. An open socket stays open after it expires; get a fresh token before
+reconnecting.
+
+#### Client (browser or React Native)
+
+```js
+let ws;
+async function connect() {
+  const { token } = await fetch("/my-backend/inapp-token").then((r) => r.json());
+  ws = new WebSocket(`wss://inapp.example.com/v1/inbox/ws?token=${token}`);
+  ws.onmessage = (e) => {
+    const m = JSON.parse(e.data);
+    if (m.type === "hello") showBadge(m.unread);
+    if (m.type === "notification") addToList(m.item);   // dedupe by m.item.id
+    if (m.type === "unread") showBadge(m.unread);
+    if (m.type === "resync") reloadInbox();             // live feed had a gap: re-fetch
+  };
+  ws.onclose = () => setTimeout(connect, 1000 + Math.random() * 4000); // reconnect with jitter
+}
+// When the user opens the list:
+ws.send(JSON.stringify({ type: "read" }));               // or {"type":"read","up_to_ms":...}
+```
+
+REST, with `Authorization: Bearer <token>`:
+
+| Request | Returns |
+|---|---|
+| `GET /v1/inbox?limit=20` | `{"items": [...newest first, each with "read"], "unread": 3, "read_up_to_ms": ...}` |
+| `GET /v1/inbox?before=<created_at_ms>` | The next, older page |
+| `POST /v1/inbox/read` with optional `{"up_to_ms": ...}` | Marks items read (default: all). Never moves backwards. |
+
+Item fields: `id`, `template`, `title`, `body`, `data` (whatever the sender passed, e.g. a deep
+link), `campaign_id`, `created_at_ms`.
+
+#### How it stays correct
+
+- **Offline users** lose nothing: the inbox is the source of truth, and the live feed is a speed-up.
+- **Worker resends** (at-least-once) don't duplicate inbox entries: storing the same item twice is
+  a no-op. A live frame can repeat in rare cases, so clients dedupe by `id`.
+- **Redis connection lost** in the gateway: it resubscribes and sends every client `resync`.
+- **Slow clients** never hold up others: if one can't keep up, the gateway closes it (code 1013)
+  and the client reconnects and re-reads.
+- **Deploys:** on shutdown, sockets are closed with code 1012, so clients reconnect to another
+  instance.
+- **Load balancer:** allow WebSocket upgrades and an idle timeout above 60 seconds. The gateway
+  pings every 25 seconds.
+
+`tests/inapp.sh` checks all of this end to end against the Docker stack.
 
 ### SMS
 

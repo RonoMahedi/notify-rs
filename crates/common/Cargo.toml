@@ -14,6 +14,8 @@ metrics-exporter-prometheus.workspace = true
 tracing-subscriber.workspace = true
 tokio.workspace = true
 tracing.workspace = true
+thiserror.workspace = true
+jsonwebtoken = "9"
 
 [lints]
 workspace = true

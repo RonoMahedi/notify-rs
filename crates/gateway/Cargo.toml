@@ -1,0 +1,22 @@
+[package]
+name = "gateway"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+common.workspace = true
+tokio.workspace = true
+axum = { workspace = true, features = ["ws"] }
+serde.workspace = true
+serde_json.workspace = true
+redis.workspace = true
+metrics.workspace = true
+metrics-exporter-prometheus.workspace = true
+tracing.workspace = true
+anyhow.workspace = true
+futures.workspace = true
+tower-http = { version = "0.6", features = ["cors"] }
+
+[lints]
+workspace = true
