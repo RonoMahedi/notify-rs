@@ -14,7 +14,7 @@ push, an SMS gateway, an email service. This guide covers:
 | Channel | Provider | Status |
 |---|---|---|
 | Push | Firebase Cloud Messaging (HTTP v1): `crates/worker/src/fcm.rs` | **Done.** Add credentials and it's live. Covers Android and, through Firebase, iOS. |
-| Email | `MockProvider` | **Mock only.** Pretends to send. Needs an adapter (SES, SendGrid, SMTP, …). |
+| Email | Amazon SES (API v2): `crates/worker/src/ses.rs` | **Done.** Set `EMAIL_PROVIDER=ses` and its settings ([below](#amazon-ses)). SendGrid, SMTP and others need an adapter. |
 | SMS | SSL Wireless (ISMS Plus, API v3): `crates/worker/src/sslwireless.rs` | **Done.** Set `SMS_PROVIDER=sslwireless` and its settings ([below](#ssl-wireless)). Other gateways need an adapter. |
 | In-app | `MockProvider` | **Mock only.** Needs a WebSocket/realtime gateway. |
 
@@ -138,8 +138,8 @@ Rules:
 ## 5. Adding a gateway, step by step
 
 The example below is a generic JSON-over-HTTP SMS gateway. It compiles and passes clippy as written.
-For a complete real adapter, with error-code mapping, idempotency and a test against a local fake
-gateway, see `crates/worker/src/sslwireless.rs`.
+For complete real adapters, with error mapping and tests against a local fake server, see
+`crates/worker/src/sslwireless.rs` (plain HTTP) and `crates/worker/src/ses.rs` (a vendor SDK).
 Adapt the request body and the error mapping to your gateway's API documentation.
 
 ### Step 1: create the adapter
@@ -327,6 +327,74 @@ How results are handled:
 If a worker crashes after sending but before recording it, the redelivered message reuses the same
 `csms_id`, and the gateway rejects it as a duplicate instead of sending a second SMS.
 
+### Amazon SES
+
+Email through Amazon SES (`SendEmail`, API v2) using the official AWS SDK.
+
+| Variable | Required | Meaning |
+|---|---|---|
+| `EMAIL_PROVIDER` | yes | `ses` |
+| `SES_FROM` | yes | Sender, e.g. `Brand <no-reply@example.com>`. Must be a verified identity (domain or address) in SES. |
+| `SES_REGION` | yes | The region where the identity is verified, e.g. `ap-south-1`. Falls back to `AWS_REGION`. |
+| `SES_CONFIGURATION_SET` | no | A configuration set, for bounce, complaint and delivery events. |
+| `SES_REPLY_TO` | no | Reply-to address. |
+| `SES_ENDPOINT` | no | Custom endpoint (VPC endpoint, or a fake server in tests). |
+
+**Credentials** use the standard AWS chain, not a project-specific variable:
+
+- **Production:** give the worker an **IAM role** (ECS task role, EC2 instance profile, EKS IRSA).
+  There's no key to store or leak.
+- **Docker Compose / elsewhere:** `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` in `.env`.
+- Either way, the identity only needs `ses:SendEmail` on your sending identity:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Action": "ses:SendEmail",
+    "Resource": "*"
+  }]
+}
+```
+
+Example `.env`:
+
+```bash
+EMAIL_PROVIDER=ses
+SES_FROM=Brand <no-reply@example.com>
+SES_REGION=ap-south-1
+AWS_ACCESS_KEY_ID=AKIA...
+AWS_SECRET_ACCESS_KEY=...
+RATE_LIMIT_EMAIL=14        # your SES maximum send rate divided by the number of email worker pods
+```
+
+If credentials are missing or `SES_FROM`/`SES_REGION` isn't set, the worker refuses to start and
+says why.
+
+Before going live:
+
+- **Leave the sandbox.** A new SES account can only send to verified addresses. Request production
+  access in the SES console.
+- **Verify your domain** and publish its DKIM records, plus SPF and DMARC.
+- **Set `RATE_LIMIT_EMAIL`** to your SES "maximum send rate" (shown in the console).
+
+How results are handled:
+
+| SES answer | Result |
+|---|---|
+| Success | Sent |
+| `TooManyRequests`, `LimitExceeded`, throttling, HTTP 5xx, timeouts | Retried through the retry tiers |
+| `MessageRejected`, `BadRequest` | Failed, not retried |
+| `MailFromDomainNotVerified`, `NotFound` (configuration set), `AccountSuspended`, `SendingPaused`, rejected credentials | Failed, with a message saying what to fix |
+
+The AWS SDK's own retries are turned off, so a slow SES never blocks other messages; the worker's
+retry tiers handle it. Each email is tagged with `notification_id`, `template`, `priority` and
+`campaign_id`, so SES event records (through a configuration set) can be matched back to a
+notification.
+
+Templates are plain text today; the email is sent as UTF-8 text, so Bengali works.
+
 ### SMS
 
 - **Length:** the Templates tab shows parts per message. GSM text fits 160 characters per part.
@@ -363,7 +431,7 @@ If a worker crashes after sending but before recording it, the redelivered messa
 
 ## 8. Not built yet (good contributions)
 
-- Adapters for SES, SendGrid, SMTP, Twilio and other Bangladeshi SMS gateways (Alpha, BulkSMSBD, …)
+- Adapters for SendGrid, SMTP, Twilio and other Bangladeshi SMS gateways (Alpha, BulkSMSBD, …)
 - **Delivery receipts:** SMS DLR and email bounce/complaint webhooks feeding back into history and opt-outs
 - **Provider failover:** a second SMS gateway when the first is down
 - **Circuit breaker:** stop calling a provider that is failing everything, and park traffic in the retry tiers

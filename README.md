@@ -59,7 +59,7 @@ cargo run --release --bin loadgen
 | `PROVIDER_TIMEOUT_MS` | 5000 | |
 | `MOCK_TRANSIENT_RATE` / `MOCK_PERMANENT_RATE` | 0.02 / 0.005 | mock provider failure injection |
 
-Push goes through Firebase and SMS through SSL Wireless when configured (`SMS_PROVIDER=sslwireless`, see [docs/PROVIDERS.md](docs/PROVIDERS.md#ssl-wireless)). Email and in-app still use mock providers that only pretend to send. [docs/PROVIDERS.md](docs/PROVIDERS.md) explains where credentials go and how to add a real gateway.
+Push goes through Firebase, SMS through SSL Wireless (`SMS_PROVIDER=sslwireless`) and email through Amazon SES (`EMAIL_PROVIDER=ses`) when configured. In-app still uses a mock provider that only pretends to send. [docs/PROVIDERS.md](docs/PROVIDERS.md) explains where credentials go and how to add a real gateway.
 
 ## Campaigns (marketing)
 
@@ -165,7 +165,7 @@ or each sync run does a full table scan.
 CI (`.github/workflows/ci.yml`) runs `cargo fmt --check`, `cargo clippy -D warnings`, `cargo test`, and a Docker image build on every push to `main` and every PR. The shell suites below need the running stack, so they aren't in CI.
 
 ```bash
-cargo test                 # 43 unit tests: rule engine (incl. SQL-injection cases), phone/email/Excel parsing, model, SSL Wireless SMS
+cargo test                 # 46 unit tests: rule engine (incl. SQL-injection cases), phone/email/Excel parsing, model, SSL Wireless SMS, SES email
 tests/e2e.sh               # 58 end-to-end checks against the running stack (sync, import, cohorts, campaigns, bulk lane)
 tests/history.sh           # people search + delivery history (run after e2e.sh)
 tests/system.sh            # System view: Kafka topics/groups, metrics, storage, dead-letter queue

@@ -22,6 +22,15 @@ x-app: &app
     SSLWIRELESS_SID: ${SSLWIRELESS_SID:-}
     SSLWIRELESS_SID_BULK: ${SSLWIRELESS_SID_BULK:-}
     SSLWIRELESS_URL: ${SSLWIRELESS_URL:-}
+    # Email. Empty = mock provider. Credentials: AWS_* keys or an IAM role. See docs/PROVIDERS.md.
+    EMAIL_PROVIDER: ${EMAIL_PROVIDER:-}
+    SES_FROM: ${SES_FROM:-}
+    SES_REGION: ${SES_REGION:-}
+    SES_CONFIGURATION_SET: ${SES_CONFIGURATION_SET:-}
+    SES_REPLY_TO: ${SES_REPLY_TO:-}
+    SES_ENDPOINT: ${SES_ENDPOINT:-}
+    AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+    AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
   depends_on:
     topics: { condition: service_completed_successfully }
     redis: { condition: service_healthy }

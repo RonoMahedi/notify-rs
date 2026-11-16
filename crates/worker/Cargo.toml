@@ -25,6 +25,8 @@ reqwest.workspace = true
 serde.workspace = true
 jsonwebtoken = "9"
 sha2 = "0.10"
+aws-config = { version = "1.13", default-features = false, features = ["behavior-version-latest", "rt-tokio", "default-https-client", "credentials-process", "sso"] }
+aws-sdk-sesv2 = { version = "1.147", default-features = false, features = ["behavior-version-latest", "rt-tokio", "default-https-client"] }
 
 [lints]
 workspace = true

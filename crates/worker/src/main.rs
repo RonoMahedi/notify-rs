@@ -4,6 +4,7 @@
 
 mod fcm;
 mod provider;
+mod ses;
 mod sslwireless;
 
 use std::{
@@ -374,7 +375,7 @@ async fn deliver(ctx: &Ctx, env: &Envelope, pre: Precheck, tpl: Option<Arc<Templ
     }
 }
 
-fn build_ctx(redis: ConnectionManager) -> Ctx {
+async fn build_ctx(redis: ConnectionManager) -> Ctx {
     let mock = |name, base, jitter| -> Arc<dyn Provider> {
         Arc::new(MockProvider {
             name,
@@ -411,15 +412,22 @@ fn build_ctx(redis: ConnectionManager) -> Ctx {
         }
         other => panic!("unknown SMS_PROVIDER {other:?}: use sslwireless, or leave it empty for the mock"),
     };
-    for (ch, name) in [("email", "ses"), ("in_app", "ws_gateway")] {
-        gauge!("provider_info", "channel" => ch, "provider" => format!("mock ({name})"), "mode" => "mock").set(1.0);
-    }
-    let providers: HashMap<Channel, Arc<dyn Provider>> = HashMap::from([
-        (Channel::Push, push),
-        (Channel::Email, mock("ses", 40, 160)),
-        (Channel::Sms, sms),
-        (Channel::InApp, mock("ws_gateway", 2, 8)),
-    ]);
+    let email: Arc<dyn Provider> = match std::env::var("EMAIL_PROVIDER").unwrap_or_default().trim() {
+        "" | "mock" => {
+            gauge!("provider_info", "channel" => "email", "provider" => "mock (ses)", "mode" => "mock").set(1.0);
+            mock("ses", 40, 160)
+        }
+        "ses" => {
+            let p = ses::Ses::from_env().await.expect("SES configuration").expect("EMAIL_PROVIDER=ses");
+            tracing::info!(from = p.sender(), "email: Amazon SES");
+            gauge!("provider_info", "channel" => "email", "provider" => "ses", "mode" => "live").set(1.0);
+            Arc::new(p)
+        }
+        other => panic!("unknown EMAIL_PROVIDER {other:?}: use ses, or leave it empty for the mock"),
+    };
+    gauge!("provider_info", "channel" => "in_app", "provider" => "mock (ws_gateway)", "mode" => "mock").set(1.0);
+    let providers: HashMap<Channel, Arc<dyn Provider>> =
+        HashMap::from([(Channel::Push, push), (Channel::Email, email), (Channel::Sms, sms), (Channel::InApp, mock("ws_gateway", 2, 8))]);
     // Per-instance limits; the global limit is this x replica count (see ARCHITECTURE.md).
     let limiters = Channel::ALL
         .iter()
@@ -615,7 +623,7 @@ async fn main() -> anyhow::Result<()> {
     let handle = common::telemetry::init_metrics();
 
     let redis_client = redis::Client::open(env_or("REDIS_URL", "redis://127.0.0.1:16379"))?;
-    let ctx = Arc::new(build_ctx(ConnectionManager::new(redis_client).await?));
+    let ctx = Arc::new(build_ctx(ConnectionManager::new(redis_client).await?).await);
 
     // WORKER_TOPICS lets you run dedicated pools (e.g. high priority, retry tiers).
     let topics: Vec<String> = match std::env::var("WORKER_TOPICS") {
