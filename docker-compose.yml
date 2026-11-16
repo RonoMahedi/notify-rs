@@ -1,0 +1,212 @@
+# Local stack: Redpanda (Kafka API), Redis, API x2, workers x3, Prometheus, Grafana.
+# Grafana: http://localhost:3001 (anonymous admin) | API: http://localhost:8080
+x-app: &app
+  image: notify:latest
+  pull_policy: never     # built once by the `api` service below
+  restart: unless-stopped
+  volumes:
+    - ./secrets:/run/secrets:ro   # provider credentials (never committed)
+  environment: &appenv
+    KAFKA_BROKERS: redpanda:9092
+    REDIS_URL: redis://redis:6379
+    RUST_LOG: info
+    # Firebase push. Empty = mock provider. See secrets/README.md.
+    FCM_CREDENTIALS_FILE: ${FCM_CREDENTIALS_FILE:-}
+    FCM_VALIDATE_ONLY: ${FCM_VALIDATE_ONLY:-false}
+    FCM_ENDPOINT: ${FCM_ENDPOINT:-}
+    FCM_TOKEN_URI: ${FCM_TOKEN_URI:-}
+  depends_on:
+    topics: { condition: service_completed_successfully }
+    redis: { condition: service_healthy }
+
+services:
+  redpanda:
+    image: docker.redpanda.com/redpandadata/redpanda:v24.2.7
+    command:
+      - redpanda start --smp 2 --memory 2G --overprovisioned --mode dev-container
+      - --kafka-addr internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr internal://redpanda:9092,external://localhost:19092
+    ports: ["19092:19092", "9644:9644"]
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster health | grep -q 'Healthy:.*true'"]
+      interval: 5s
+      retries: 30
+
+  topics:
+    image: docker.redpanda.com/redpandadata/redpanda:v24.2.7
+    depends_on: { redpanda: { condition: service_healthy } }
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        set -e
+        R="rpk -X brokers=redpanda:9092"
+        for c in push email sms in_app; do for p in high normal bulk; do
+          $$R topic create notify.$$c.$$p -p 12 -r 1 -c retention.ms=259200000 || true
+        done; done
+        for t in notify.retry.5s notify.retry.1m notify.retry.10m; do $$R topic create $$t -p 6 -r 1 || true; done
+        $$R topic create notify.dlq -p 3 -r 1 -c retention.ms=1209600000 || true
+        $$R topic create notify.events -p 12 -r 1 -c retention.ms=86400000 || true
+
+  redis:
+    image: redis:7.4-alpine
+    # Local dev: no persistence (snapshot forks double memory on a small VM). Prod: Redis Cluster with replicas.
+    command: ["redis-server", "--maxmemory", "512mb", "--maxmemory-policy", "volatile-lru", "--save", "", "--appendonly", "no"]
+    ports: ["16379:6379"]   # host 16379 to avoid clashing with a local Redis
+    healthcheck: { test: ["CMD", "redis-cli", "ping"], interval: 5s }
+
+  api:
+    <<: *app
+    build: .
+    command: ["api"]
+    deploy: { replicas: 2 }
+    ports: ["8080-8081:8080"]
+
+  # Main pool: normal-priority topics.
+  worker:
+    <<: *app
+    command: ["worker"]
+    deploy: { replicas: 3 }
+    environment:
+      <<: *appenv
+      WORKER_TOPICS: notify.push.normal,notify.email.normal,notify.sms.normal,notify.in_app.normal
+
+  # Dedicated pool for high priority so campaigns never starve OTPs.
+  worker-high:
+    <<: *app
+    command: ["worker"]
+    environment:
+      <<: *appenv
+      WORKER_GROUP: notify-workers-high
+      WORKER_TOPICS: notify.push.high,notify.email.high,notify.sms.high,notify.in_app.high
+
+  # One pool per retry tier. Each message sleeps until its not_before inside the batch,
+  # so sharing a pool would make 5s retries wait behind 10-minute ones. The worker sizes
+  # max.poll.interval.ms from the tier's delay so the broker doesn't evict it while it waits.
+  worker-retry:
+    <<: *app
+    command: ["worker"]
+    environment:
+      <<: *appenv
+      WORKER_GROUP: notify-workers-retry   # keeps the original group's committed offsets
+      WORKER_TOPICS: notify.retry.5s
+      CONCURRENCY: "5000"
+
+  worker-retry-1m:
+    <<: *app
+    command: ["worker"]
+    environment:
+      <<: *appenv
+      WORKER_GROUP: notify-workers-retry-1m
+      WORKER_TOPICS: notify.retry.1m
+      CONCURRENCY: "5000"
+
+  worker-retry-10m:
+    <<: *app
+    command: ["worker"]
+    environment:
+      <<: *appenv
+      WORKER_GROUP: notify-workers-retry-10m
+      WORKER_TOPICS: notify.retry.10m
+      CONCURRENCY: "5000"
+
+  loadgen:
+    <<: *app
+    command: ["loadgen"]
+    profiles: ["load"]
+    environment:
+      <<: *appenv
+      API_URL: http://api:8080
+      TARGET_RPS: ${TARGET_RPS:-2000}
+    depends_on: [api]
+
+  # Marketing campaigns lane: own consumer group, lower provider share.
+  worker-bulk:
+    <<: *app
+    command: ["worker"]
+    environment:
+      <<: *appenv
+      WORKER_GROUP: notify-workers-bulk
+      WORKER_TOPICS: notify.push.bulk,notify.email.bulk,notify.sms.bulk,notify.in_app.bulk
+      RATE_LIMIT_PUSH: "3000"
+      RATE_LIMIT_EMAIL: "3000"
+      RATE_LIMIT_SMS: "500"
+
+  # Campaign service database (contacts, cohorts, campaigns, imports).
+  postgres:
+    image: postgres:18   # same major version as identity-postgres
+    environment: { POSTGRES_USER: notify, POSTGRES_PASSWORD: notify, POSTGRES_DB: notify }
+    command: ["postgres", "-c", "shared_buffers=256MB", "-c", "max_wal_size=2GB"]
+    ports: ["15432:5432"]
+    volumes: [pgdata:/var/lib/postgresql]
+    healthcheck: { test: ["CMD", "pg_isready", "-U", "notify"], interval: 3s, retries: 30 }
+
+  # Stand-in for identity-postgres with the same Prisma `users` schema + fake users.
+  # To use the real one: IDENTITY_DATABASE_URL=postgres://identity:<pw>@host.docker.internal:5432/identity
+  identity-sim:
+    image: postgres:18   # same major version as identity-postgres
+    environment:
+      POSTGRES_USER: identity
+      POSTGRES_PASSWORD: identity
+      POSTGRES_DB: identity
+      SEED_USERS: ${SEED_USERS:-1000000}
+    volumes:
+      - ./deploy/identity-sim:/docker-entrypoint-initdb.d:ro
+      - identitysim:/var/lib/postgresql
+    ports: ["15433:5432"]
+    healthcheck: { test: ["CMD-SHELL", "pg_isready -U identity && psql -U identity -tAc 'select 1 from users limit 1' | grep -q 1"], interval: 5s, retries: 60 }
+
+  campaign:
+    <<: *app
+    command: ["campaign"]
+    ports: ["8090:8090"]
+    environment:
+      <<: *appenv
+      DATABASE_URL: postgres://notify:notify@postgres:5432/notify
+      IDENTITY_DATABASE_URL: ${IDENTITY_DATABASE_URL:-postgres://identity:identity@identity-sim:5432/identity}
+      NOTIFY_API_URL: http://api:8080
+      # API key for scripts/automation only; people sign in to /admin with email + password.
+      ADMIN_TOKEN: ${ADMIN_TOKEN:-dev-admin-token-change-me}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}   # true behind HTTPS
+      PROMETHEUS_URL: http://prometheus:9090
+      SYNC_INTERVAL_SECS: "30"
+    depends_on:
+      topics: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+      postgres: { condition: service_healthy }
+      identity-sim: { condition: service_healthy }
+
+  # Kafka web UI: topics, individual messages, consumer groups and lag, broker config.
+  # The free version has no login and can delete topics, so it is bound to this
+  # machine only. In production put it behind SSO, or use a read-only Kafka UI.
+  console:
+    image: docker.redpanda.com/redpandadata/console:v2.7.2
+    environment:
+      KAFKA_BROKERS: redpanda:9092
+      REDPANDA_ADMINAPI_ENABLED: "true"
+      REDPANDA_ADMINAPI_URLS: http://redpanda:9644
+    ports: ["127.0.0.1:8085:8080"]
+    depends_on: { redpanda: { condition: service_healthy } }
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    volumes:
+      - ./deploy/prometheus:/etc/prometheus:ro
+    command: ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.retention.time=7d"]
+    ports: ["9090:9090"]
+
+  grafana:
+    image: grafana/grafana:11.3.0
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/notifications.json
+    volumes:
+      - ./deploy/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./deploy/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports: ["3001:3000"]
+    depends_on: [prometheus]
+
+volumes:
+  pgdata:
+  identitysim:

@@ -1,0 +1,7 @@
+/target
+/tests/fixtures/
+/tests/ui-shots/
+/secrets/*
+!/secrets/README.md
+/.env
+/.idea/

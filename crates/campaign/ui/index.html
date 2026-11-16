@@ -1,0 +1,776 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Campaign Admin</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --ink: #14171c; --muted: #5d6673; --line: #e3e6eb;
+    --accent: #2f5bea; --accent-ink: #ffffff; --ok: #1d7a46; --warn: #a66300; --bad: #b42318;
+    --ok-bg: #e7f5ec; --warn-bg: #fdf3e2; --bad-bg: #fdecea; --info-bg: #eaf0fd;
+    --radius: 10px; --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1216; --panel: #171b21; --ink: #e8ebef; --muted: #9aa4b1; --line: #2a3039;
+      --accent: #6d8dff; --accent-ink: #0b0d10; --ok: #5cc98a; --warn: #f0b45a; --bad: #ff7b6e;
+      --ok-bg: #16281e; --warn-bg: #2b2213; --bad-bg: #2e1715; --info-bg: #19213a;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--ink); }
+  header { display: flex; align-items: center; gap: 24px; padding: 0 24px; height: 56px; background: var(--panel); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 5; }
+  header h1 { font-size: 15px; margin: 0; letter-spacing: .2px; white-space: nowrap; }
+  nav { display: flex; gap: 4px; overflow-x: auto; }
+  nav button { background: none; border: 0; color: var(--muted); padding: 8px 12px; border-radius: 8px; font: inherit; cursor: pointer; white-space: nowrap; }
+  nav button[aria-current="page"] { color: var(--ink); background: var(--bg); font-weight: 600; }
+  header .right { margin-left: auto; display: flex; gap: 12px; align-items: center; }
+  header a { color: var(--muted); text-decoration: none; }
+  main { max-width: 1180px; margin: 0 auto; padding: 24px; }
+  h2 { font-size: 20px; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin: 0 0 20px; }
+  .grid { display: grid; gap: 16px; }
+  .cols-4 { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+  .cols-2 { grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; }
+  .card h3 { margin: 0 0 12px; font-size: 14px; }
+  .stat .label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .4px; }
+  .stat .value { font-size: 26px; font-weight: 650; font-variant-numeric: tabular-nums; }
+  .stat .hint { color: var(--muted); font-size: 12px; }
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  th { text-align: left; color: var(--muted); font-weight: 500; font-size: 12px; border-bottom: 1px solid var(--line); padding: 8px; }
+  td { border-bottom: 1px solid var(--line); padding: 10px 8px; vertical-align: middle; }
+  tr:last-child td { border-bottom: 0; }
+  .scroll { overflow-x: auto; }
+  .num { text-align: right; }
+  .muted { color: var(--muted); }
+  .mono { font-family: var(--mono); font-size: 12px; }
+  .pill { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+  .s-running, .s-processing { background: var(--info-bg); color: var(--accent); }
+  .s-completed { background: var(--ok-bg); color: var(--ok); }
+  .s-paused, .s-scheduled, .s-draft { background: var(--warn-bg); color: var(--warn); }
+  .s-cancelled, .s-failed { background: var(--bad-bg); color: var(--bad); }
+  .s-sent { background: var(--ok-bg); color: var(--ok); }
+  .s-retrying { background: var(--warn-bg); color: var(--warn); }
+  .s-expired, .s-suppressed { background: var(--line); color: var(--muted); }
+  .clip { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .wrap { word-break: break-all; }
+  tr.click { cursor: pointer; } tr.click:hover td { background: var(--bg); }
+  .msg { white-space: pre-wrap; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; font-size: 13px; }
+  .snip { color: var(--muted); font-size: 12px; max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tok { font-family: var(--mono); font-size: 12px; }
+  .linkbtn { background: none; border: 0; color: var(--accent); font: inherit; cursor: pointer; padding: 0; }
+  .bar { height: 6px; background: var(--line); border-radius: 3px; overflow: hidden; min-width: 120px; }
+  .bar > i { display: block; height: 100%; background: var(--accent); transition: width .4s; }
+  label { display: block; font-size: 12px; color: var(--muted); margin: 0 0 4px; }
+  input, select, textarea { width: 100%; font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+  textarea { font-family: var(--mono); font-size: 12px; min-height: 90px; }
+  input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  .row { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); margin-bottom: 12px; }
+  .btn { font: inherit; border: 1px solid var(--line); background: var(--panel); color: var(--ink); padding: 7px 14px; border-radius: 8px; cursor: pointer; white-space: nowrap; }
+  .btn:hover { border-color: var(--muted); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
+  .btn.danger { color: var(--bad); }
+  .btn.small { padding: 3px 10px; font-size: 12px; }
+  .btn:disabled { opacity: .5; cursor: default; }
+  .actions { display: flex; gap: 6px; flex-wrap: wrap; }
+  .cond { display: grid; grid-template-columns: 1.3fr 1fr 1.5fr auto; gap: 8px; margin-bottom: 8px; align-items: center; }
+  @media (max-width: 640px) {
+    .cond { grid-template-columns: 1fr 1fr; } main { padding: 16px; }
+    header { flex-wrap: wrap; height: auto; padding: 8px 16px; gap: 4px 12px; }
+    header .right { margin-left: 0; width: 100%; flex-wrap: wrap; gap: 8px; }
+    #acct { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+    nav { order: 3; width: 100%; padding-bottom: 4px; }
+  }
+  .result { margin-top: 12px; padding: 12px; border-radius: 8px; background: var(--bg); border: 1px dashed var(--line); }
+  .big { font-size: 22px; font-weight: 650; font-variant-numeric: tabular-nums; }
+  #toasts { position: fixed; bottom: 20px; right: 20px; left: 20px; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; z-index: 20; pointer-events: none; }
+  .toast { max-width: 420px; padding: 12px 16px; border-radius: 8px; background: var(--ink); color: var(--bg); box-shadow: 0 6px 24px rgba(0,0,0,.2); pointer-events: auto; }
+  .toast.err { background: var(--bad); color: #fff; }
+  .login { max-width: 420px; margin: 12vh auto; }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .seg button { border: 0; background: var(--panel); color: var(--muted); padding: 6px 12px; font: inherit; cursor: pointer; }
+  .seg button.on { background: var(--accent); color: var(--accent-ink); }
+  details summary { cursor: pointer; color: var(--muted); }
+  .empty { color: var(--muted); padding: 24px; text-align: center; }
+</style>
+</head>
+<body>
+<div id="app"></div><div id="toasts" role="status" aria-live="polite"></div>
+<script>
+"use strict";
+// ------------------------------------------------------------------ core
+const $ = (s, r = document) => r.querySelector(s);
+const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const fmt = (n) => (n === null || n === undefined) ? "—" : Number(n).toLocaleString();
+const ago = (t) => { if (!t) return "—"; const s = (Date.now() - new Date(t)) / 1000; if (s < 60) return Math.max(0, Math.round(s)) + "s ago"; if (s < 3600) return Math.round(s / 60) + "m ago"; if (s < 86400) return Math.round(s / 3600) + "h ago"; return new Date(t).toLocaleString(); };
+const pill = (s) => `<span class="pill s-${esc(s)}">${esc(s)}</span>`;
+const when = (t) => t ? new Date(t).toLocaleString() : "—";
+const showPerson = (uid) => { OPEN_PERSON = uid; go("people"); };
+let ME = null; // signed-in user {email, name, role}; the session itself is an HttpOnly cookie
+let VIEW = location.hash.slice(1) || "overview";
+let timer = null;
+
+function toast(msg, err = false) {
+  const t = document.createElement("div"); t.className = "toast" + (err ? " err" : ""); t.textContent = msg;
+  $("#toasts").appendChild(t); setTimeout(() => t.remove(), err ? 6000 : 3000);
+}
+
+async function api(path, opts = {}) {
+  const headers = opts.body && !(opts.body instanceof FormData) ? { "content-type": "application/json" } : {};
+  const res = await fetch("/v1" + path, { ...opts, headers, credentials: "same-origin" });
+  const text = await res.text();
+  let data; try { data = text ? JSON.parse(text) : null; } catch { data = { error: text }; }
+  if (res.status === 401 && !path.startsWith("/auth/")) {
+    const wasIn = !!ME; ME = null; render();
+    throw new Error(wasIn ? "Your session ended. Please sign in again." : "Please sign in.");
+  }
+  if (!res.ok) throw new Error((data && data.error) || res.statusText);
+  return data;
+}
+const post = (p, body) => api(p, { method: "POST", body: body instanceof FormData ? body : JSON.stringify(body ?? {}) });
+
+function go(view) { VIEW = view; location.hash = view; render(); }
+window.addEventListener("hashchange", () => { const v = location.hash.slice(1); if (v && v !== VIEW) { VIEW = v; render(); } });
+
+// ------------------------------------------------------------------ shell
+const VIEWS = { overview: "Overview", campaigns: "Campaigns", cohorts: "Cohorts", templates: "Templates", people: "People", deliveries: "Deliveries", audience: "Audience", system: "System", users: "Users" };
+let OPEN_PERSON = null;   // user_id to open when the People view loads
+let DELIV_FILTER = {};    // preset filters for the Deliveries view
+
+function loginView(app) {
+  app.innerHTML = `<div class="login card"><h2>Campaign Admin</h2><p class="sub">Sign in with your email and password.</p>
+    <form id="login"><div style="margin-bottom:12px"><label for="em">Email</label><input id="em" type="email" autocomplete="username" required autofocus></div>
+    <div><label for="pw">Password</label><input id="pw" type="password" autocomplete="current-password" required></div>
+    <div style="margin-top:16px"><button class="btn primary" id="lbtn">Sign in</button></div></form>
+    <p class="muted" style="margin:16px 0 0;font-size:12px">No account? Ask an admin to add you under Users.</p></div>`;
+  $("#login").onsubmit = async (e) => {
+    e.preventDefault(); const btn = $("#lbtn"); btn.disabled = true;
+    try { ME = await post("/auth/login", { email: $("#em").value, password: $("#pw").value }); render(); }
+    catch (err) { toast(err.message, true); $("#pw").value = ""; $("#pw").focus(); }
+    finally { btn.disabled = false; }
+  };
+}
+
+function render() {
+  clearInterval(timer);
+  const app = $("#app");
+  if (!ME) return loginView(app);
+  const views = Object.entries(VIEWS).filter(([k]) => k !== "users" || ME.role === "admin");
+  if (!views.some(([k]) => k === VIEW) && VIEW !== "account") VIEW = "overview";
+  app.innerHTML = `<header><h1>Campaign Admin</h1><nav>${views.map(([k, v]) =>
+      `<button data-v="${k}" ${k === VIEW ? 'aria-current="page"' : ""}>${v}</button>`).join("")}</nav>
+    <div class="right"><a href="http://localhost:3001" target="_blank" rel="noopener">Dashboard ↗</a>
+    ${ME.role === "admin" ? '<a href="http://localhost:8085" target="_blank" rel="noopener" title="Redpanda Console: browse Kafka topics and messages">Kafka ↗</a>' : ""}
+    <button class="btn small" id="acct" title="Account">${esc(ME.email)} · ${esc(ME.role)}</button>
+    <button class="btn small" id="logout">Sign out</button></div></header><main id="main"></main>`;
+  app.querySelectorAll("nav button").forEach((b) => (b.onclick = () => go(b.dataset.v)));
+  $("#acct").onclick = () => go("account");
+  $("#logout").onclick = async () => { try { await post("/auth/logout"); } catch {} ME = null; render(); };
+  ({ overview, campaigns, cohorts, templates, people, deliveries, audience, system, users, account }[VIEW] || overview)($("#main"));
+}
+
+// Runs fn now and every `ms` while this view is shown (render() clears it).
+function poll(fn, ms) { fn().catch((e) => toast(e.message, true)); timer = setInterval(() => fn().catch(() => {}), ms); }
+
+async function boot() {
+  try { const r = await fetch("/v1/auth/me", { credentials: "same-origin" }); ME = r.ok ? await r.json() : null; } catch { ME = null; }
+  render();
+}
+
+// ------------------------------------------------------------------ templates
+function templates(el) {
+  el.innerHTML = `<h2>Templates</h2><p class="sub">What each message says. Tokens like <span class="tok">{{first_name}}</span> are filled in for each person; <span class="tok">{{first_name|Customer}}</span> uses "Customer" when the name is missing.</p>
+    <div class="grid cols-2"><div class="card"><h3 id="th">New template</h3><form id="tf">
+      <div class="row"><div><label>Name (used by campaigns and the API)</label><input name="key" required pattern="[a-z0-9_]{1,64}" placeholder="winter_sale"></div>
+        <div><label>Channel</label><select name="channel"><option>sms</option><option>email</option><option>push</option><option value="in_app">in-app</option></select></div></div>
+      <div id="trow" style="margin-bottom:12px"><label id="tlabel">Subject</label><input name="title" maxlength="300"></div>
+      <div style="margin-bottom:8px"><label>Message</label><textarea name="body" required rows="6" style="font-family:inherit;font-size:14px"></textarea></div>
+      <div class="actions" id="tokbtns" style="margin-bottom:12px">${["first_name", "last_name", "email", "phone", "user_id", "attributes.plan", "discount"].map((t) =>
+        `<button type="button" class="btn small tok" data-tok="${t}">{{${t}}}</button>`).join("")}</div>
+      <div class="row"><div><label>Description (optional)</label><input name="description" maxlength="200"></div></div>
+      <label style="display:flex;gap:8px;align-items:center;color:var(--ink);font-size:14px;margin-bottom:12px"><input type="checkbox" name="hide_content" style="width:auto"> Hide the text in delivery history (for OTPs and codes)</label>
+      <div class="actions"><button class="btn primary">Save template</button><button type="button" class="btn" id="tnew">New</button></div></form></div>
+    <div class="card"><h3>Preview</h3>
+      <div class="row"><div><label>For this person (email or user ID)</label><input id="pv-who" placeholder="user12@example.com"></div></div>
+      <div style="margin-bottom:12px"><label>Extra data (JSON), e.g. campaign values</label><textarea id="pv-data" rows="2">{"discount": "20%", "order": "A-1001", "code": "482913"}</textarea></div>
+      <div id="pv-out" class="muted">Start typing a message…</div></div></div>
+    <div style="height:16px"></div><div class="card"><h3>All templates</h3><div class="scroll" id="tlist"></div></div>`;
+  const f = $("#tf");
+  const syncTitle = () => { const c = f.channel.value; $("#trow").hidden = c === "sms"; $("#tlabel").textContent = c === "email" ? "Subject" : "Title"; };
+  f.channel.onchange = () => { syncTitle(); preview(); };
+  syncTitle();
+  el.querySelectorAll("button[data-tok]").forEach((b) => (b.onclick = () => {
+    const ta = f.body, t = `{{${b.dataset.tok}}}`, a = ta.selectionStart ?? ta.value.length, z = ta.selectionEnd ?? a;
+    ta.value = ta.value.slice(0, a) + t + ta.value.slice(z); ta.focus(); ta.selectionStart = ta.selectionEnd = a + t.length; preview();
+  }));
+  let who = { q: null, uid: null }, timer2 = null;
+  const resolveWho = async () => {
+    const q = $("#pv-who").value.trim(); if (q === who.q) return who.uid;
+    who = { q, uid: null }; if (!q) return null;
+    const r = await api("/contacts?limit=1&q=" + encodeURIComponent(q)); who.uid = r.items[0]?.user_id || null; return who.uid;
+  };
+  const preview = () => { clearTimeout(timer2); timer2 = setTimeout(async () => {
+    const out = $("#pv-out"); if (!f.body.value.trim()) { out.textContent = "Start typing a message…"; return; }
+    let data; try { data = JSON.parse($("#pv-data").value || "{}"); } catch { out.innerHTML = '<span style="color:var(--bad)">Extra data is not valid JSON</span>'; return; }
+    try { const uid = await resolveWho();
+      const r = await post("/templates/preview", { channel: f.channel.value, title: f.title.value, body: f.body.value, user_id: uid, data });
+      const s = r.sms;
+      out.innerHTML = `${$("#pv-who").value.trim() && !uid ? '<div style="color:var(--warn)">No person matches; showing with extra data only.</div>' : ""}
+        ${uid ? `<div class="muted" style="margin-bottom:6px">As received by ${esc($("#pv-who").value.trim())}:</div>` : ""}
+        <div class="msg">${r.title ? `<b>${esc(r.title)}</b>\n\n` : ""}${esc(r.body)}</div>
+        ${r.missing.length ? `<div style="color:var(--warn);margin-top:8px">No value for: ${r.missing.map((m) => `<span class="tok">{{${esc(m)}}}</span>`).join(", ")}. Add a default like <span class="tok">{{${esc(r.missing[0])}|…}}</span>.</div>` : ""}
+        ${s ? `<div style="margin-top:8px">${s.encoding === "Unicode" ? "Unicode (Bengali or special characters)" : "Standard (GSM-7)"} · ${fmt(s.length)} characters · <b>${s.segments} SMS part${s.segments === 1 ? "" : "s"}</b> <span class="muted">(${s.per_segment} per part; each part is billed)</span></div>` : ""}`;
+    } catch (e) { out.innerHTML = `<span style="color:var(--bad)">${esc(e.message)}</span>`; }
+  }, 300); };
+  ["input", "change"].forEach((ev) => { f.body.addEventListener(ev, preview); f.title.addEventListener(ev, preview); $("#pv-who").addEventListener(ev, preview); $("#pv-data").addEventListener(ev, preview); });
+  $("#tnew").onclick = () => { f.reset(); f.key.readOnly = false; f.channel.disabled = false; $("#th").textContent = "New template"; syncTitle(); preview(); };
+  f.onsubmit = async (e) => {
+    e.preventDefault();
+    try { const t = await api(`/templates/${f.channel.value}/${encodeURIComponent(f.key.value.trim())}`, { method: "PUT",
+        body: JSON.stringify({ title: f.title.value, body: f.body.value, hide_content: f.hide_content.checked, description: f.description.value }) });
+      toast(`Saved ${t.channel} template "${t.key}"`); list(); } catch (err) { toast(err.message, true); }
+  };
+  const edit = (t) => { f.key.value = t.key; f.key.readOnly = true; f.channel.value = t.channel; f.channel.disabled = true; f.title.value = t.title || "";
+    f.body.value = t.body; f.hide_content.checked = t.hide_content; f.description.value = t.description || ""; $("#th").textContent = `Edit ${t.channel} template "${t.key}"`;
+    syncTitle(); preview(); f.scrollIntoView({ behavior: "smooth" }); };
+  const list = async () => {
+    const ts = await api("/templates");
+    $("#tlist").innerHTML = ts.length ? `<table><tr><th>Name</th><th>Channel</th><th>Message</th><th>Tokens</th><th>SMS</th><th>Updated</th><th></th></tr>${ts.map((t, i) => `<tr>
+      <td><b>${esc(t.key)}</b>${t.description ? `<div class="muted">${esc(t.description)}</div>` : ""}${t.hide_content ? '<div><span class="pill s-draft">hidden in history</span></div>' : ""}</td>
+      <td>${esc(t.channel)}</td><td><div class="snip" title="${esc(t.body)}">${t.title ? `<b>${esc(t.title)}</b> · ` : ""}${esc(t.body)}</div></td>
+      <td>${t.tokens.map((x) => `<span class="tok">${esc(x)}</span>`).join(" ") || "—"}</td>
+      <td>${t.sms ? `${t.sms.segments} part${t.sms.segments === 1 ? "" : "s"}<div class="muted">${esc(t.sms.encoding)}</div>` : "—"}</td>
+      <td class="muted">${ago(t.updated_at)}${t.updated_by ? `<div>${esc(t.updated_by)}</div>` : ""}</td>
+      <td><div class="actions"><button class="btn small" data-edit="${i}">edit</button><button class="btn small danger" data-del="${i}">delete</button></div></td></tr>`).join("")}</table>`
+      : `<div class="empty">No templates yet.</div>`;
+    $("#tlist").querySelectorAll("[data-edit]").forEach((b) => (b.onclick = () => edit(ts[b.dataset.edit])));
+    $("#tlist").querySelectorAll("[data-del]").forEach((b) => (b.onclick = async () => {
+      const t = ts[b.dataset.del];
+      if (b.dataset.confirm !== "1") { b.dataset.confirm = "1"; b.textContent = "confirm?"; return; }
+      try { await api(`/templates/${t.channel}/${t.key}`, { method: "DELETE" }); toast(`Deleted "${t.key}"`); list(); } catch (e) { toast(e.message, true); }
+    }));
+  };
+  list();
+}
+
+// ------------------------------------------------------------------ people
+function people(el) {
+  el.innerHTML = `<h2>People</h2><p class="sub">Everyone you can reach. Open a person to see their devices and every notification sent to them.</p>
+    <div class="card"><form id="ps" class="actions"><input name="q" placeholder="Search by email, phone (01712…), name or user ID" style="flex:1;min-width:240px">
+      <button class="btn primary">Search</button><button type="button" class="btn" id="pclear">Clear</button></form>
+      <div class="muted" id="pmode" style="margin-top:8px;font-size:12px"></div>
+      <div class="scroll" id="plist" style="margin-top:8px"></div><div id="pmore" style="margin-top:8px"></div></div>
+    <div id="pdetail"></div>`;
+  let term = "", next = null, rows = [];
+  const load = async (append) => {
+    const r = await api(`/contacts?limit=50&q=${encodeURIComponent(term)}${append && next ? `&after=${encodeURIComponent(next)}` : ""}`);
+    rows = append ? rows.concat(r.items) : r.items; next = r.next;
+    $("#pmode").textContent = term ? `${rows.length}${next ? "+" : ""} match${rows.length === 1 ? "" : "es"} (${r.mode} search)` : `Browsing all people, ${rows.length} shown`;
+    $("#plist").innerHTML = rows.length ? `<table><tr><th>Name</th><th>Email</th><th>Phone</th><th class="num">Devices</th><th>Status</th><th>Source</th><th>Unsubscribed</th></tr>
+      ${rows.map((p) => `<tr class="click" data-u="${esc(p.user_id)}"><td>${esc([p.first_name, p.last_name].filter(Boolean).join(" ") || "—")}<div class="muted mono">${esc(String(p.user_id).slice(0, 24))}</div></td>
+        <td>${esc(p.email || "—")}</td><td>${esc(p.phone || "—")}</td><td class="num">${fmt(p.devices)}</td><td><span class="pill ${p.status === "active" ? "s-completed" : "s-cancelled"}">${esc(p.status)}</span></td>
+        <td>${esc(p.source)}</td><td>${esc((p.unsubscribed || []).join(", ") || "—")}</td></tr>`).join("")}</table>` : `<div class="empty">No one matches “${esc(term)}”.</div>`;
+    $("#plist").querySelectorAll("tr[data-u]").forEach((tr) => (tr.onclick = () => openPerson(tr.dataset.u)));
+    $("#pmore").innerHTML = next ? `<button class="btn small" id="pnext">Load more</button>` : "";
+    if (next) $("#pnext").onclick = () => load(true).catch((e) => toast(e.message, true));
+  };
+  $("#ps").onsubmit = (e) => { e.preventDefault(); term = e.target.q.value.trim(); load(false).catch((err) => toast(err.message, true)); };
+  $("#pclear").onclick = () => { $("#ps").q.value = ""; term = ""; load(false).catch((e) => toast(e.message, true)); };
+  load(false).catch((e) => toast(e.message, true));
+  if (OPEN_PERSON) { const u = OPEN_PERSON; OPEN_PERSON = null; openPerson(u); }
+}
+
+function historyTable(list, showUser) {
+  if (!list.length) return `<div class="empty">No notifications in the last 30 days.</div>`;
+  return `<table><tr><th>Time</th>${showUser ? "<th>User</th>" : ""}<th>Channel</th><th>Template / campaign</th><th>Status</th><th class="num">Try</th><th>Sent to</th><th>Provider</th><th>Reason</th><th></th></tr>
+    ${list.map((n) => `<tr><td class="muted" title="${esc(when(n.ts))}">${ago(n.ts)}</td>
+      ${showUser ? `<td><button class="linkbtn" data-person="${esc(n.user_id)}">${esc(String(n.user_id).slice(0, 18))}</button></td>` : ""}
+      <td>${esc(n.channel)}</td><td>${esc(n.template)}${n.campaign_name ? `<div class="muted">${esc(n.campaign_name)}</div>` : '<div class="muted">transactional</div>'}
+        ${n.body ? `<div class="snip" title="${esc((n.title ? n.title + "\n" : "") + n.body)}">${n.title ? `<b>${esc(n.title)}</b> · ` : ""}${esc(n.body)}</div>` : ""}</td>
+      <td>${pill(n.status)}</td><td class="num">${fmt(n.attempt + 1)}</td><td class="mono clip" title="${esc(n.recipient || "")}">${esc(n.recipient || "—")}</td>
+      <td>${esc(n.provider || "—")}</td><td>${n.error ? `<span style="color:${n.status === "sent" ? "inherit" : "var(--bad)"}">${esc(n.error)}</span>` : "—"}</td>
+      <td><button class="btn small" data-ev="${esc(n.notification_id)}">attempts</button></td></tr>
+      <tr hidden data-evrow="${esc(n.notification_id)}"><td colspan="${showUser ? 10 : 9}"></td></tr>`).join("")}</table>`;
+}
+
+function wireHistory(root) {
+  root.querySelectorAll("button[data-person]").forEach((b) => (b.onclick = () => showPerson(b.dataset.person)));
+  root.querySelectorAll("button[data-ev]").forEach((b) => (b.onclick = async () => {
+    const row = root.querySelector(`tr[data-evrow="${CSS.escape(b.dataset.ev)}"]`);
+    if (!row.hidden) { row.hidden = true; return; }
+    try { const evs = await api(`/notifications/${b.dataset.ev}/events`);
+      row.firstElementChild.innerHTML = `<div class="result"><div class="muted mono" style="margin-bottom:6px">notification ${esc(b.dataset.ev)}</div>${evs.map((e) =>
+        `<div>${esc(when(e.ts))} · attempt ${e.attempt + 1} · ${pill(e.status)} ${esc(e.provider || "")} ${e.error ? "· " + esc(e.error) : ""} · ${fmt(e.latency_ms)} ms after accepted</div>`).join("")}
+        ${(() => { const m = evs.find((e) => e.body); return m ? `<div style="margin-top:8px"><div class="muted">Message sent${m.recipient ? " to " + esc(m.recipient) : ""}:</div><div class="msg">${m.title ? `<b>${esc(m.title)}</b>\n\n` : ""}${esc(m.body)}</div></div>` : ""; })()}</div>`;
+      row.hidden = false; } catch (e) { toast(e.message, true); }
+  }));
+}
+
+async function openPerson(uid) {
+  const box = $("#pdetail"); if (!box) return;
+  box.innerHTML = `<div style="height:16px"></div><div class="card"><div class="empty">Loading…</div></div>`;
+  try {
+    const [c, hist] = await Promise.all([api("/contacts/" + encodeURIComponent(uid)), api(`/contacts/${encodeURIComponent(uid)}/notifications`)]);
+    const counts = hist.reduce((m, n) => ((m[n.status] = (m[n.status] || 0) + 1), m), {});
+    box.innerHTML = `<div style="height:16px"></div><div class="card"><div class="actions" style="justify-content:space-between">
+        <h3 style="margin:0">${esc([c.first_name, c.last_name].filter(Boolean).join(" ") || c.user_id)}</h3><button class="btn small" id="pclose">Close</button></div>
+      <div class="grid cols-2" style="margin-top:12px"><div><table>${[["User ID", c.user_id], ["Email", c.email], ["Phone", c.phone], ["Status", c.status], ["Source", c.source],
+        ["Country", c.country], ["Language", c.language], ["Last active", when(c.last_active_at)], ["Updated", when(c.updated_at)],
+        ["Unsubscribed from", (c.unsubscribed || []).join(", ") || "none"]].map(([k, v]) => `<tr><td class="muted">${k}</td><td class="wrap">${esc(v ?? "—")}</td></tr>`).join("")}</table></div>
+        <div><h3>Devices (push tokens)</h3>${(c.devices || []).length ? `<table><tr><th>Platform</th><th>Token</th></tr>${c.devices.map((d) =>
+          `<tr><td>${esc(d.platform)}</td><td class="mono wrap">${esc(d.token)}</td></tr>`).join("")}</table>` : `<div class="muted">No registered devices.</div>`}
+          <h3 style="margin-top:16px">Attributes</h3><div class="mono wrap">${esc(JSON.stringify(c.attributes))}</div></div></div>
+      <h3 style="margin-top:20px">Notifications (last 30 days): ${["sent", "failed", "retrying", "expired", "suppressed"].filter((k) => counts[k]).map((k) => `${fmt(counts[k])} ${k}`).join(" · ") || "none"}</h3>
+      <div class="scroll" id="phist">${historyTable(hist, false)}</div></div>`;
+    $("#pclose").onclick = () => (box.innerHTML = "");
+    wireHistory($("#phist"));
+    box.scrollIntoView({ behavior: "smooth", block: "start" });
+  } catch (e) { box.innerHTML = `<div style="height:16px"></div><div class="card"><div class="empty">${esc(e.message)}</div></div>`; }
+}
+
+// ------------------------------------------------------------------ deliveries
+function deliveries(el) {
+  const f0 = DELIV_FILTER; DELIV_FILTER = {};
+  el.innerHTML = `<h2>Deliveries</h2><p class="sub">Every notification outcome as it happens: who it went to, through which provider, and why it failed.</p>
+    <div class="card"><div class="row" style="margin:0"><div><label>Status</label><select id="fs"><option value="">all</option>${["sent", "failed", "retrying", "expired", "suppressed"].map((x) => `<option>${x}</option>`).join("")}</select></div>
+      <div><label>Channel</label><select id="fc"><option value="">all</option><option>push</option><option>email</option><option>sms</option><option value="in_app">in-app</option></select></div>
+      <div><label>Campaign</label><select id="fcp"><option value="">all (incl. transactional)</option></select></div>
+      <div><label>Summary window</label><select id="fw"><option value="15">15 minutes</option><option value="60" selected>1 hour</option><option value="1440">24 hours</option></select></div></div></div>
+    <div style="height:16px"></div><div class="grid cols-4" id="dsum"></div>
+    <div style="height:16px"></div><div class="grid cols-2"><div class="card"><h3>Top failure reasons</h3><div id="dreasons"></div></div>
+      <div class="card"><h3>What the states mean</h3><table>
+        <tr><td>${pill("sent")}</td><td>Provider accepted it</td></tr><tr><td>${pill("retrying")}</td><td>Temporary error; retried after 5 s, 1 min, 10 min</td></tr>
+        <tr><td>${pill("failed")}</td><td>Permanent error, or retries exhausted (in the DLQ)</td></tr><tr><td>${pill("expired")}</td><td>Its time-to-live passed before delivery</td></tr>
+        <tr><td>${pill("suppressed")}</td><td>User unsubscribed from that channel</td></tr></table></div></div>
+    <div style="height:16px"></div><div class="card"><h3>Latest events</h3><div class="scroll" id="dfeed"></div><div id="dmore" style="margin-top:8px"></div></div>`;
+  if (f0.status) $("#fs").value = f0.status;
+  api("/campaigns").then((cs) => {
+    $("#fcp").innerHTML += cs.filter((c) => c.enqueued > 0).map((c) => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join("");
+    if (f0.campaign_id) $("#fcp").value = f0.campaign_id;
+    refresh().catch(() => {});
+  });
+  let older = false, items = [], before = null;
+  const qs = () => { const p = new URLSearchParams(); if ($("#fs").value) p.set("status", $("#fs").value); if ($("#fc").value) p.set("channel", $("#fc").value); if ($("#fcp").value) p.set("campaign_id", $("#fcp").value); return p; };
+  const draw = () => {
+    $("#dfeed").innerHTML = historyTable(items, true); wireHistory($("#dfeed"));
+    $("#dmore").innerHTML = before ? `<button class="btn small" id="dnext">Load older</button>` : "";
+    if (before) $("#dnext").onclick = async () => { const p = qs(); p.set("before", before); const r = await api("/deliveries?" + p); items = items.concat(r.items); before = r.next_before; older = true; draw(); };
+  };
+  const refresh = async () => {
+    const p = qs(); const sp = new URLSearchParams({ minutes: $("#fw").value }); if (p.get("channel")) sp.set("channel", p.get("channel")); if (p.get("campaign_id")) sp.set("campaign_id", p.get("campaign_id"));
+    const s = await api("/deliveries/summary?" + sp);
+    const b = s.by_status || {}, done = (b.sent || 0) + (b.failed || 0);
+    $("#dsum").innerHTML = [["Sent", b.sent, "sent"], ["Failed", b.failed, "failed"], ["Retrying", b.retrying, "retrying"],
+      ["Success rate", done ? ((100 * (b.sent || 0)) / done).toFixed(2) + "%" : "—", ""]].map(([l, v, k]) =>
+      `<div class="card stat"><div class="label">${l}</div><div class="value">${typeof v === "string" ? v : fmt(v || 0)}</div><div class="hint">${k ? `last ${$("#fw").selectedOptions[0].text}` : "sent ÷ (sent + failed)"}</div></div>`).join("");
+    $("#dreasons").innerHTML = s.top_reasons.length ? `<table><tr><th>Reason</th><th>State</th><th class="num">Count</th></tr>${s.top_reasons.map((r) =>
+      `<tr><td>${esc(r.error)}</td><td>${pill(r.status)}</td><td class="num">${fmt(r.count)}</td></tr>`).join("")}</table>` : `<div class="empty">No failures in this window.</div>`;
+    if (!older) { const r = await api("/deliveries?" + p); items = r.items; before = r.next_before; draw(); }
+  };
+  ["#fs", "#fc", "#fcp", "#fw"].forEach((id) => ($(id).onchange = () => { older = false; refresh().catch((e) => toast(e.message, true)); }));
+  poll(refresh, 5000);
+}
+
+// ------------------------------------------------------------------ system
+const bytes = (n) => { if (n == null) return "—"; const u = ["B", "KB", "MB", "GB", "TB"]; let i = 0; while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; } return `${n.toFixed(i ? 1 : 0)} ${u[i]}`; };
+const rate = (x) => (x == null ? "—" : Number(x).toLocaleString(undefined, { maximumFractionDigits: 1 }));
+
+function system(el) {
+  el.innerHTML = `<h2>System</h2><p class="sub">The whole pipeline, live (refreshes every 5 s, read-only): services, Kafka topics and consumers, storage, and the dead-letter queue.</p>
+    <div class="grid cols-4" id="sm"></div>
+    <div style="height:16px"></div><div class="grid cols-2"><div class="card"><h3>Services</h3><div id="ssvc"></div>
+      <h3 style="margin-top:16px">Providers</h3><div id="sprov"></div></div>
+      <div class="card"><h3>Storage</h3><div id="sstore"></div></div></div>
+    <div style="height:16px"></div><div class="card"><div class="actions" style="justify-content:space-between"><h3 style="margin:0" id="kh">Kafka topics</h3>
+      <a class="btn small" href="http://localhost:8085/topics" target="_blank" rel="noopener">Browse messages in Redpanda Console ↗</a></div><div style="height:8px"></div><div class="scroll" id="stopics"></div></div>
+    <div style="height:16px"></div><div class="card"><h3>Kafka consumer groups</h3><div class="scroll" id="sgroups"></div></div>
+    <div style="height:16px"></div><div class="card"><div class="actions" style="justify-content:space-between"><h3 style="margin:0" id="dlqh">Dead-letter queue</h3>
+      <button class="btn small" id="dlqr">Refresh</button></div>
+      <p class="muted" style="margin:8px 0 12px">Messages that failed permanently or ran out of retries. Kept 14 days for inspection.</p><div class="scroll" id="sdlq"></div></div>`;
+  let prev = null;
+  const refresh = async () => {
+    const d = await api("/system"); const m = d.metrics || {}, k = d.kafka || {};
+    $("#sm").innerHTML = [["Ingest", rate(m.ingest_per_s) + "/s", "accepted by the API"], ["Delivered", rate(m.sent_per_s) + "/s", "provider accepted"],
+      ["Failed", rate(m.failed_per_s) + "/s", `retrying ${rate(m.retry_per_s)}/s`], ["p99 time to deliver", m.p99_all_s == null ? "—" : m.p99_all_s + " s", `incl. retries, last 5 min · high priority: ${m.p99_high_s == null ? "no traffic" : m.p99_high_s + " s"}`]]
+      .map(([l, v, h]) => `<div class="card stat"><div class="label">${l}</div><div class="value">${esc(v)}</div><div class="hint">${esc(h)}</div></div>`).join("");
+    const by = {}; (m.services || []).forEach((x) => { const j = by[x.job] || (by[x.job] = { up: 0, n: 0 }); j.n++; if (x.up) j.up++; });
+    const label = { api: "Ingest API", worker: "Worker pools (all)", campaign: "Campaign service", redpanda: "Kafka (Redpanda)" };
+    $("#ssvc").innerHTML = Object.keys(by).length ? `<table><tr><th>Service</th><th class="num">Up</th><th>Status</th></tr>${Object.entries(by).sort().map(([j, v]) =>
+      `<tr><td>${esc(label[j] || j)}</td><td class="num">${v.up} / ${v.n}</td><td>${v.up === v.n ? '<span class="pill s-completed">healthy</span>' : v.up ? '<span class="pill s-paused">degraded</span>' : '<span class="pill s-failed">down</span>'}</td></tr>`).join("")}</table>`
+      : `<div class="muted">Prometheus unavailable.</div>`;
+    const modePill = { live: '<span class="pill s-completed">live</span>', validate_only: '<span class="pill s-paused">validate only (nothing delivered)</span>', mock: '<span class="pill s-draft">mock (simulated)</span>' };
+    $("#sprov").innerHTML = (m.providers || []).length ? `<table><tr><th>Channel</th><th>Provider</th><th>Mode</th></tr>${[...m.providers].sort((a, b) => a.channel.localeCompare(b.channel)).map((x) =>
+      `<tr><td>${esc(x.channel)}</td><td>${esc(x.provider)}</td><td>${modePill[x.mode] || esc(x.mode)}</td></tr>`).join("")}</table>` : `<div class="muted">No provider info yet.</div>`;
+    const r = d.redis || {}, p = d.postgres || {};
+    $("#sstore").innerHTML = `<table><tr><td class="muted">Redis memory</td><td>${esc(r.used_memory || "—")} of ${esc(r.max_memory || "—")}</td></tr>
+      <tr><td class="muted">Redis keys · ops/s</td><td>${fmt(r.keys)} · ${fmt(r.ops_per_s)}</td></tr><tr><td class="muted">Redis evicted keys</td><td>${fmt(r.evicted_keys)}</td></tr>
+      <tr><td class="muted">Postgres database</td><td>${bytes(p.database_bytes)}</td></tr><tr><td class="muted">Delivery history</td><td>${bytes(p.history_bytes)} · ~${fmt(p.history_rows_estimate)} rows</td></tr>
+      <tr><td class="muted">Contacts</td><td>~${fmt(p.contacts_estimate)}</td></tr></table>`;
+    if (k.error) { $("#stopics").innerHTML = `<div class="result" style="color:var(--bad)">${esc(k.error)}</div>`; return; }
+    const now = Date.now(), lag = m.lag_by_topic || {}, rates = {};
+    (k.topics || []).forEach((t) => { if (prev && prev.p[t.name] != null) rates[t.name] = Math.max(0, (t.produced - prev.p[t.name]) / ((now - prev.t) / 1000)); });
+    prev = { t: now, p: Object.fromEntries((k.topics || []).map((t) => [t.name, t.produced])) };
+    $("#kh").textContent = `Kafka topics (${(k.topics || []).length} topics, ${k.brokers} broker${k.brokers === 1 ? "" : "s"})`;
+    $("#stopics").innerHTML = `<table><tr><th>Topic</th><th class="num">Partitions</th><th>Read by</th><th class="num">Messages stored</th><th class="num">Write rate</th><th class="num">Backlog</th></tr>
+      ${(k.topics || []).map((t) => { const l = lag[t.name]; return `<tr><td class="mono">${esc(t.name)}</td><td class="num">${t.partitions}</td>
+        <td class="mono">${esc(t.reader || "— (kept for inspection)")}</td><td class="num">${fmt(t.stored)}</td>
+        <td class="num">${rates[t.name] == null ? '<span class="muted">measuring…</span>' : rate(rates[t.name]) + "/s"}</td>
+        <td class="num">${t.reader ? (l == null ? "—" : l > 0 ? `<span class="pill s-paused">${fmt(l)}</span>` : "0") : "—"}</td></tr>`; }).join("")}</table>`;
+    $("#sgroups").innerHTML = (k.groups || []).length ? `<table><tr><th>Group</th><th>State</th><th class="num">Members</th></tr>${k.groups.map((g) =>
+      `<tr><td class="mono">${esc(g.name)}</td><td>${g.state === "Stable" ? '<span class="pill s-completed">Stable</span>' : `<span class="pill s-paused">${esc(g.state)}</span>`}</td><td class="num">${g.members}</td></tr>`).join("")}</table>`
+      : `<div class="empty">No consumer groups.</div>`;
+  };
+  const loadDlq = async () => {
+    $("#sdlq").innerHTML = `<div class="empty">Reading…</div>`;
+    try { const d = await api("/system/dlq?limit=50");
+      $("#dlqh").textContent = `Dead-letter queue: ${fmt(d.total)} message${d.total === 1 ? "" : "s"}`;
+      $("#sdlq").innerHTML = d.items.length ? `<table><tr><th>Created</th><th>User</th><th>Channel</th><th>Template / campaign</th><th class="num">Tries</th><th>Address</th><th>Reason</th></tr>
+        ${d.items.map((x) => `<tr><td class="muted" title="${esc(when(x.created_at))}">${ago(x.created_at)}</td>
+          <td><button class="linkbtn" data-person="${esc(x.user_id)}">${esc(String(x.user_id).slice(0, 18))}</button></td><td>${esc(x.channel)}</td>
+          <td>${esc(x.template)}<div class="muted">${esc(x.campaign_name || "transactional")}</div></td><td class="num">${x.attempts}</td>
+          <td class="mono clip" title="${esc(x.address || "")}">${esc(x.address || "—")}</td><td style="color:var(--bad)">${esc(x.reason || "—")}</td></tr>`).join("")}</table>`
+        : `<div class="empty">The dead-letter queue is empty.</div>`;
+      $("#sdlq").querySelectorAll("button[data-person]").forEach((b) => (b.onclick = () => showPerson(b.dataset.person)));
+    } catch (e) { $("#sdlq").innerHTML = `<div class="result" style="color:var(--bad)">${esc(e.message)}</div>`; }
+  };
+  $("#dlqr").onclick = loadDlq;
+  loadDlq();
+  poll(refresh, 5000);
+}
+
+// ------------------------------------------------------------------ users (admins only)
+function tempPassword() {
+  const a = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789", out = [];
+  const buf = new Uint8Array(64); crypto.getRandomValues(buf);
+  for (const b of buf) { if (b < 256 - (256 % a.length)) out.push(a[b % a.length]); if (out.length === 16) break; }
+  return out.join("");
+}
+
+function users(el) {
+  el.innerHTML = `<h2>Users</h2><p class="sub">Who can sign in. Admins manage users; marketers run campaigns.</p>
+    <div class="card"><h3>Add a user</h3><form id="uf">
+      <div class="row"><div><label>Email</label><input name="email" type="email" required autocomplete="off"></div>
+        <div><label>Name</label><input name="name" maxlength="100" autocomplete="off"></div>
+        <div><label>Role</label><select name="role"><option value="marketer">marketer</option><option value="admin">admin</option></select></div>
+        <div><label>Temporary password (min 10)</label><input name="password" required minlength="10" autocomplete="new-password"></div></div>
+      <div class="actions"><button type="button" class="btn" id="gen">Generate password</button><button class="btn primary">Add user</button></div></form>
+      <div id="ures"></div></div>
+    <div style="height:16px"></div><div class="card"><h3>All users</h3><div class="scroll" id="ulist"></div></div>`;
+  const f = $("#uf");
+  $("#gen").onclick = () => { f.password.value = tempPassword(); };
+  f.onsubmit = async (e) => {
+    e.preventDefault();
+    const body = { email: f.email.value, name: f.name.value, role: f.role.value, password: f.password.value };
+    try { const u = await post("/users", body);
+      $("#ures").innerHTML = `<div class="result">Added <b>${esc(u.email)}</b> (${esc(u.role)}). Give them this temporary password and ask them to change it under Account: <code class="mono">${esc(body.password)}</code></div>`;
+      f.reset(); list(); } catch (err) { toast(err.message, true); }
+  };
+  const patch = (id, body) => api("/users/" + id, { method: "PATCH", body: JSON.stringify(body) });
+  const list = async () => {
+    const us = await api("/users");
+    $("#ulist").innerHTML = `<table><tr><th>Email</th><th>Name</th><th>Role</th><th>Status</th><th>Last sign-in</th><th></th></tr>${us.map((u) => `<tr>
+      <td>${esc(u.email)}${u.email === ME.email ? ' <span class="muted">(you)</span>' : ""}</td><td>${esc(u.name || "")}</td>
+      <td>${esc(u.role)}</td><td>${u.disabled ? '<span class="pill s-cancelled">disabled</span>' : '<span class="pill s-completed">active</span>'}</td>
+      <td class="muted">${ago(u.last_login_at)}</td>
+      <td>${u.email === ME.email ? "" : `<div class="actions">
+        <button class="btn small" data-act="role" data-id="${esc(u.id)}" data-role="${u.role === "admin" ? "marketer" : "admin"}">make ${u.role === "admin" ? "marketer" : "admin"}</button>
+        <button class="btn small" data-act="reset" data-id="${esc(u.id)}" data-email="${esc(u.email)}">reset password</button>
+        <button class="btn small ${u.disabled ? "" : "danger"}" data-act="toggle" data-id="${esc(u.id)}" data-dis="${u.disabled ? "0" : "1"}">${u.disabled ? "enable" : "disable"}</button></div>`}</td></tr>`).join("")}</table>`;
+    $("#ulist").querySelectorAll("button[data-act]").forEach((b) => (b.onclick = async () => {
+      try {
+        if (b.dataset.act === "role") await patch(b.dataset.id, { role: b.dataset.role });
+        if (b.dataset.act === "toggle") await patch(b.dataset.id, { disabled: b.dataset.dis === "1" });
+        if (b.dataset.act === "reset") {
+          const pw = tempPassword(); await patch(b.dataset.id, { password: pw });
+          $("#ures").innerHTML = `<div class="result">New temporary password for <b>${esc(b.dataset.email)}</b> (they were signed out everywhere): <code class="mono">${esc(pw)}</code></div>`;
+        }
+        toast("Saved"); list();
+      } catch (err) { toast(err.message, true); }
+    }));
+  };
+  list();
+}
+
+// ------------------------------------------------------------------ account
+function account(el) {
+  el.innerHTML = `<h2>Account</h2><p class="sub">${esc(ME.name || ME.email)} · ${esc(ME.role)}</p>
+    <div class="card" style="max-width:480px"><h3>Change password</h3><form id="pf">
+      <input type="email" autocomplete="username" value="${esc(ME.email)}" hidden>
+      <div style="margin-bottom:12px"><label>Current password</label><input name="cur" type="password" autocomplete="current-password" required></div>
+      <div style="margin-bottom:12px"><label>New password (min 10 characters)</label><input name="n1" type="password" autocomplete="new-password" minlength="10" required></div>
+      <div style="margin-bottom:12px"><label>Repeat new password</label><input name="n2" type="password" autocomplete="new-password" minlength="10" required></div>
+      <button class="btn primary">Change password</button></form>
+      <p class="muted" style="font-size:12px;margin:12px 0 0">Changing it signs you out on every other device.</p></div>`;
+  $("#pf").onsubmit = async (e) => {
+    e.preventDefault(); const f = e.target;
+    if (f.n1.value !== f.n2.value) return toast("New passwords don't match", true);
+    try { const r = await post("/auth/password", { current_password: f.cur.value, new_password: f.n1.value });
+      toast(`Password changed${r.other_sessions_signed_out ? `; ${r.other_sessions_signed_out} other session(s) signed out` : ""}`); f.reset(); }
+    catch (err) { toast(err.message, true); }
+  };
+}
+
+// ------------------------------------------------------------------ overview
+function overview(el) {
+  el.innerHTML = `<h2>Overview</h2><p class="sub">Audience, sync health and what's sending right now.</p>
+    <div class="grid cols-4" id="stats"></div><div style="height:16px"></div>
+    <div class="grid cols-2"><div class="card"><h3>Active campaigns</h3><div id="active"></div></div>
+    <div class="card"><h3>Identity sync</h3><div id="sync"></div></div></div>`;
+  poll(async () => {
+    const [s, camps, sync] = await Promise.all([api("/stats"), api("/campaigns"), api("/sync")]);
+    const by = s.campaigns_by_status || {};
+    $("#stats").innerHTML = [
+      ["Contacts", fmt(s.contacts_estimate), "estimate"],
+      ["Devices", fmt(s.devices), "push tokens"],
+      ["Cohorts", fmt(s.segments), ""],
+      ["Campaigns running", fmt(by.running || 0), `${fmt(by.scheduled || 0)} scheduled · ${fmt(by.paused || 0)} paused`],
+    ].map(([l, v, h]) => `<div class="card stat"><div class="label">${l}</div><div class="value">${v}</div><div class="hint">${esc(h)}</div></div>`).join("");
+    const act = camps.filter((c) => ["running", "scheduled", "paused"].includes(c.status));
+    $("#active").innerHTML = act.length ? `<table>${act.map((c) => `<tr><td>${esc(c.name)}<div class="muted">${esc(c.channel)}</div></td>
+      <td>${pill(c.status)}</td><td style="width:40%"><div class="bar"><i style="width:${c.progress ?? 0}%"></i></div>
+      <div class="muted">${c.progress ?? 0}% · ${fmt(c.enqueued)} sent</div></td></tr>`).join("")}</table>` : `<div class="empty">Nothing sending.</div>`;
+    const src = (sync.sources || [])[0];
+    $("#sync").innerHTML = !sync.enabled ? `<div class="empty">Disabled (IDENTITY_DATABASE_URL not set).</div>` : !src ? `<div class="empty">Waiting for first run…</div>` :
+      `<table><tr><td class="muted">Last run</td><td>${ago(src.last_run_at)}</td></tr>
+      <tr><td class="muted">Rows synced (total)</td><td>${fmt(src.rows_synced)}</td></tr>
+      <tr><td class="muted">Watermark</td><td class="mono">${esc(src.watermark_ts)}</td></tr>
+      <tr><td class="muted">Status</td><td>${src.last_error ? `<span class="pill s-failed">error</span> <span class="mono">${esc(src.last_error)}</span>` : '<span class="pill s-completed">healthy</span>'}</td></tr></table>`;
+  }, 5000);
+}
+
+// ------------------------------------------------------------------ campaigns
+function campaigns(el) {
+  el.innerHTML = `<h2>Campaigns</h2><p class="sub">Send to a cohort on the bulk lane. Pause, resume or cancel at any time.</p>
+    <div class="card"><h3>New campaign</h3><form id="cf">
+      <div class="row"><div><label>Name</label><input name="name" required maxlength="200" placeholder="Winter sale"></div>
+        <div><label>Cohort</label><select name="segment_id" required id="segsel"><option value="">Loading…</option></select></div>
+        <div><label>Channel</label><select name="channel" id="chsel"><option>push</option><option selected>email</option><option>sms</option><option value="in_app">in-app</option></select></div>
+        <div><label>Template</label><select name="template" required id="tplsel"><option value="">Loading…</option></select></div></div>
+      <div id="tplview" class="muted" style="margin:-4px 0 12px"></div>
+      <div class="row"><div><label>Speed (messages/second)</label><input name="rate_per_sec" type="number" min="1" max="50000" value="2000"></div>
+        <div><label>Frequency cap (max/user/day, blank = none)</label><input name="frequency_cap" type="number" min="1" placeholder="2"></div>
+        <div><label>Expire after (hours)</label><input name="ttl_hours" type="number" min="1" value="24"></div>
+        <div><label>When</label><select name="when" id="when"><option value="now">Start now</option><option value="later">Schedule</option><option value="draft">Save as draft</option></select></div></div>
+      <div class="row" id="atrow" hidden><div><label>Start at (your local time)</label><input name="at" type="datetime-local"></div></div>
+      <div><label>Template data (JSON object; first_name / last_name are added per user)</label><textarea name="data">{"discount": "20%"}</textarea></div>
+      <div class="result" id="aud">Pick a cohort to see how many people this reaches.</div>
+      <div style="margin-top:12px"><button class="btn primary" id="cbtn">Create campaign</button></div></form></div>
+    <div style="height:16px"></div><div class="card"><h3>All campaigns</h3><div class="scroll" id="clist"></div></div>`;
+  const form = $("#cf");
+  $("#when").onchange = () => ($("#atrow").hidden = $("#when").value !== "later");
+  const audience = async () => {
+    const id = form.segment_id.value; if (!id) return;
+    $("#aud").textContent = "Counting…";
+    try { const p = await api(`/segments/${id}/preview?channel=${form.channel.value}`);
+      $("#aud").innerHTML = `Reaches <span class="big">${fmt(p.count)}</span> people on <b>${esc(form.channel.value)}</b>
+        <span class="muted">(active, reachable, not unsubscribed). At ${fmt(form.rate_per_sec.value)}/s ≈ ${Math.ceil(p.count / Math.max(1, form.rate_per_sec.value) / 60)} min.</span>`;
+    } catch (e) { $("#aud").textContent = e.message; }
+  };
+  let tplList = [];
+  const showTpl = () => { const t = tplList.find((x) => x.key === form.template.value);
+    $("#tplview").innerHTML = t ? `<div class="msg">${t.title ? `<b>${esc(t.title)}</b>\n\n` : ""}${esc(t.body)}</div>` : (tplList.length ? "" : 'No templates for this channel yet: create one in the <a href="#templates">Templates</a> tab.'); };
+  const loadTpls = async () => { tplList = await api("/templates?channel=" + form.channel.value);
+    $("#tplsel").innerHTML = tplList.length ? tplList.map((t) => `<option value="${esc(t.key)}">${esc(t.key)}${t.description ? " · " + esc(t.description) : ""}</option>`).join("") : '<option value="">(none for this channel)</option>';
+    showTpl(); };
+  form.template.onchange = showTpl;
+  form.channel.onchange = () => { loadTpls().catch((e) => toast(e.message, true)); audience(); };
+  loadTpls().catch((e) => toast(e.message, true));
+  form.segment_id.onchange = audience; form.rate_per_sec.onchange = audience;
+  api("/segments").then((segs) => {
+    $("#segsel").innerHTML = `<option value="">Select a cohort…</option>` + segs.map((s) => `<option value="${esc(s.id)}">${esc(s.name)} (${esc(s.kind)})</option>`).join("");
+  });
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+    let data; try { data = JSON.parse(form.data.value || "{}"); } catch { return toast("Template data is not valid JSON", true); }
+    const body = { name: form.name.value, segment_id: form.segment_id.value, channel: form.channel.value, template: form.template.value, data,
+      rate_per_sec: Number(form.rate_per_sec.value), ttl_seconds: Number(form.ttl_hours.value || 24) * 3600 };
+    if (form.frequency_cap.value) body.frequency_cap = Number(form.frequency_cap.value);
+    if (form.when.value === "now") body.start = true;
+    if (form.when.value === "later") { if (!form.at.value) return toast("Pick a start time", true); body.scheduled_at = new Date(form.at.value).toISOString(); }
+    const btn = $("#cbtn"); btn.disabled = true; // keep the reference: the view may change mid-request
+    try { const c = await post("/campaigns", body); toast(`Campaign "${c.name}" ${c.status}`); form.name.value = ""; refresh(); }
+    catch (err) { toast(err.message, true); } finally { btn.disabled = false; }
+  };
+  const act = { draft: ["start", "cancel"], scheduled: ["pause", "cancel"], running: ["pause", "cancel"], paused: ["resume", "cancel"] };
+  const refresh = async () => {
+    const cs = await api("/campaigns");
+    $("#clist").innerHTML = cs.length ? `<table><tr><th>Campaign</th><th>Status</th><th>Progress</th><th class="num">Targeted</th><th class="num">Sent</th><th class="num">Suppressed</th><th>Started</th><th></th></tr>
+      ${cs.map((c) => `<tr><td>${esc(c.name)}<div class="muted">${esc(c.channel)} · ${esc(c.template)} · ${fmt(c.rate_per_sec)}/s${c.frequency_cap ? ` · cap ${c.frequency_cap}/day` : ""}</div>
+        ${c.last_error ? `<div class="mono" style="color:var(--bad)">${esc(c.last_error)}</div>` : ""}</td>
+        <td>${pill(c.status)}${c.status === "scheduled" && c.scheduled_at ? `<div class="muted">${esc(new Date(c.scheduled_at).toLocaleString())}</div>` : ""}</td>
+        <td><div class="bar"><i style="width:${c.progress ?? 0}%"></i></div><div class="muted">${c.progress ?? 0}%</div></td>
+        <td class="num">${fmt(c.targeted)}</td><td class="num">${fmt(c.enqueued)}</td><td class="num">${fmt(c.suppressed)}</td>
+        <td class="muted">${ago(c.started_at)}</td>
+        <td><div class="actions">${c.enqueued > 0 ? `<button class="btn small" data-deliv="${esc(c.id)}">deliveries</button>` : ""}${(act[c.status] || []).map((a) => `<button class="btn small ${a === "cancel" ? "danger" : ""}" data-a="${a}" data-id="${esc(c.id)}" data-n="${esc(c.name)}">${a === "cancel" && confirming(c.id) ? "confirm cancel?" : a}</button>`).join("")}</div></td></tr>`).join("")}</table>`
+      : `<div class="empty">No campaigns yet.</div>`;
+    $("#clist").querySelectorAll("button[data-a]").forEach((b) => (b.onclick = () => campaignAction(b, refresh)));
+    $("#clist").querySelectorAll("button[data-deliv]").forEach((b) => (b.onclick = () => { DELIV_FILTER = { campaign_id: b.dataset.deliv }; go("deliveries"); }));
+  };
+  poll(refresh, 3000);
+}
+
+// Pending "confirm cancel?" lives here, not on the button: the list re-renders every 3 s.
+let pendingCancel = null; // { id, until }
+const confirming = (id) => pendingCancel && pendingCancel.id === id && Date.now() < pendingCancel.until;
+
+async function campaignAction(b, refresh) {
+  const { a, id, n } = b.dataset;
+  if (a === "cancel" && !confirming(id)) {
+    pendingCancel = { id, until: Date.now() + 5000 }; b.textContent = "confirm cancel?"; return;
+  }
+  if (a === "cancel") pendingCancel = null;
+  b.disabled = true;
+  try { const c = await post(`/campaigns/${id}/${a}`); toast(`"${n}" is now ${c.status}`); refresh(); } catch (e) { toast(e.message, true); b.disabled = false; }
+}
+
+// ------------------------------------------------------------------ cohorts
+const FIELDS = [
+  ["country", "text"], ["language", "text"], ["timezone", "text"], ["source", "text"], ["email", "text"], ["phone", "text"],
+  ["first_name", "text"], ["last_name", "text"], ["last_active_at", "time"], ["created_at", "time"],
+  ["attributes.plan", "attr"], ["attributes.city", "attr"], ["attributes.total_orders", "attr"],
+  ["attributes.email_verified", "attr"], ["attributes.phone_verified", "attr"], ["attributes.", "attr"],
+];
+const OPS = {
+  text: ["eq", "ne", "in", "not_in", "contains", "exists", "not_exists"],
+  time: ["within", "older_than", "gt", "lt", "exists", "not_exists"],
+  attr: ["eq", "ne", "in", "not_in", "gt", "gte", "lt", "lte", "contains", "exists", "not_exists"],
+};
+const OP_LABEL = { eq: "is", ne: "is not", in: "is one of", not_in: "is none of", contains: "contains", exists: "is set", not_exists: "is not set",
+  within: "within last", older_than: "longer ago than", gt: ">", gte: "≥", lt: "<", lte: "≤" };
+const HINT = { in: "gold, premium", not_in: "basic", within: "30d", older_than: "90d", gt: "", lt: "" };
+
+function typeOf(field) { return field.startsWith("attributes.") ? "attr" : (FIELDS.find((f) => f[0] === field) || [0, "text"])[1]; }
+function parseVal(v, type, op) {
+  const one = (x) => { x = x.trim(); if (type !== "attr") return x; if (x === "true") return true; if (x === "false") return false; if (x !== "" && !isNaN(Number(x))) return Number(x); return x; };
+  if (op === "in" || op === "not_in") return v.split(",").map(one).filter((x) => x !== "");
+  return one(v);
+}
+
+function cohorts(el) {
+  el.innerHTML = `<h2>Cohorts</h2><p class="sub">Who gets a campaign: everyone, a rule, or an uploaded list (upload under Audience).</p>
+    <div class="card"><h3>Build a cohort</h3>
+      <div class="row"><div><label>Name</label><input id="sname" maxlength="200" placeholder="Gold customers in Dhaka"></div>
+        <div><label>Type</label><select id="skind"><option value="rule">Rule (conditions)</option><option value="all">All users</option></select></div>
+        <div><label>Preview channel</label><select id="pch"><option value="">any</option><option>email</option><option>sms</option><option>push</option><option value="in_app">in-app</option></select></div></div>
+      <div id="rulebox"><div style="margin-bottom:8px">Match <span class="seg"><button class="on" data-m="all">all</button><button data-m="any">any</button></span> of these conditions:</div>
+        <div id="conds"></div><button class="btn small" id="addc">+ Add condition</button>
+        <details style="margin-top:12px"><summary>Advanced: edit rule as JSON (nesting, NOT)</summary><textarea id="rjson" style="margin-top:8px" placeholder='{"all": [...]}'></textarea>
+        <div class="muted">When filled, the JSON is used instead of the conditions above.</div></details></div>
+      <div class="actions" style="margin-top:12px"><button class="btn" id="prev">Preview</button><button class="btn primary" id="save">Save cohort</button></div>
+      <div id="presult"></div></div>
+    <div style="height:16px"></div><div class="card"><h3>Saved cohorts</h3><div class="scroll" id="slist"></div></div>`;
+  let mode = "all";
+  el.querySelectorAll(".seg button").forEach((b) => (b.onclick = () => { mode = b.dataset.m; el.querySelectorAll(".seg button").forEach((x) => x.classList.toggle("on", x === b)); }));
+  $("#skind").onchange = () => ($("#rulebox").hidden = $("#skind").value === "all");
+  const addCond = (field = "attributes.plan", op = "in", val = "gold, premium") => {
+    const d = document.createElement("div"); d.className = "cond";
+    d.innerHTML = `<select class="f">${FIELDS.map(([f]) => `<option value="${f}">${f === "attributes." ? "attributes.(custom)…" : f}</option>`).join("")}</select>
+      <select class="o"></select><input class="v" placeholder="value"><button class="btn small" title="Remove">✕</button>`;
+    const f = $(".f", d), o = $(".o", d), v = $(".v", d);
+    const syncOps = () => { const t = typeOf(f.value); const cur = o.value; o.innerHTML = OPS[t].map((x) => `<option value="${x}">${OP_LABEL[x]}</option>`).join(""); if (OPS[t].includes(cur)) o.value = cur; syncVal(); };
+    const syncVal = () => { v.hidden = o.value === "exists" || o.value === "not_exists"; v.placeholder = HINT[o.value] ?? (typeOf(f.value) === "time" ? "2026-01-31" : "value"); };
+    f.onchange = () => { if (f.value === "attributes.") { const k = (prompt("Attribute name (letters, digits, _)") || "").trim(); if (/^[A-Za-z0-9_]{1,64}$/.test(k)) { const opt = document.createElement("option"); opt.value = opt.textContent = "attributes." + k; f.insertBefore(opt, f.lastElementChild); f.value = opt.value; } else f.value = "attributes.plan"; } syncOps(); };
+    o.onchange = syncVal; $("button", d).onclick = () => d.remove();
+    if (![...f.options].some((x) => x.value === field)) { const opt = document.createElement("option"); opt.value = opt.textContent = field; f.insertBefore(opt, f.lastElementChild); }
+    f.value = field; syncOps(); o.value = op; syncVal(); v.value = val;
+    $("#conds").appendChild(d);
+  };
+  $("#addc").onclick = () => addCond("last_active_at", "within", "30d");
+  addCond();
+  const buildRule = () => {
+    const raw = $("#rjson").value.trim();
+    if (raw) return JSON.parse(raw);
+    const conds = [...el.querySelectorAll(".cond")].map((d) => {
+      const field = $(".f", d).value, op = $(".o", d).value, t = typeOf(field);
+      const c = { field, op }; if (op !== "exists" && op !== "not_exists") c.value = parseVal($(".v", d).value, t, op); return c;
+    });
+    return { [mode]: conds };
+  };
+  const body = () => { const kind = $("#skind").value; const b = { kind }; if (kind === "rule") b.rule = buildRule(); return b; };
+  $("#prev").onclick = async () => {
+    let b; try { b = body(); } catch { return toast("Rule JSON is invalid", true); }
+    if ($("#pch").value) b.channel = $("#pch").value;
+    $("#presult").innerHTML = `<div class="result">Counting…</div>`;
+    try { const p = await post("/segments/preview", b); $("#presult").innerHTML = previewHtml(p); }
+    catch (e) { $("#presult").innerHTML = `<div class="result" style="color:var(--bad)">${esc(e.message)}</div>`; }
+  };
+  $("#save").onclick = async () => {
+    const name = $("#sname").value.trim(); if (!name) return toast("Give the cohort a name", true);
+    let b; try { b = { name, ...body() }; } catch { return toast("Rule JSON is invalid", true); }
+    try { await post("/segments", b); toast(`Cohort "${name}" saved`); $("#sname").value = ""; list(); } catch (e) { toast(e.message, true); }
+  };
+  const list = async () => {
+    const segs = await api("/segments");
+    $("#slist").innerHTML = segs.length ? `<table><tr><th>Name</th><th>Type</th><th>Definition</th><th>Created</th><th></th></tr>${segs.map((s) => `<tr>
+      <td>${esc(s.name)}</td><td><span class="pill ${{ all: "s-completed", rule: "s-running", static: "s-draft" }[s.kind] || ""}">${esc(s.kind)}</span></td>
+      <td class="mono">${s.kind === "rule" ? esc(JSON.stringify(s.rule).slice(0, 160)) : s.kind === "static" ? `${fmt(s.members)} uploaded members` : "everyone"}</td>
+      <td class="muted">${ago(s.created_at)}</td><td><div class="actions"><button class="btn small" data-p="${esc(s.id)}">count</button>
+      <button class="btn small danger" data-d="${esc(s.id)}" data-n="${esc(s.name)}">delete</button></div><div class="muted" id="c-${esc(s.id)}"></div></td></tr>`).join("")}</table>`
+      : `<div class="empty">No cohorts yet.</div>`;
+    $("#slist").querySelectorAll("[data-p]").forEach((b) => (b.onclick = async () => {
+      const out = $("#c-" + CSS.escape(b.dataset.p)); out.textContent = "…";
+      try { const rs = await Promise.all(["email", "sms", "push", "in_app"].map((c) => api(`/segments/${b.dataset.p}/preview?channel=${c}`)));
+        out.textContent = rs.map((r) => `${r.channel}: ${fmt(r.count)}`).join(" · "); } catch (e) { out.textContent = e.message; }
+    }));
+    $("#slist").querySelectorAll("[data-d]").forEach((b) => (b.onclick = async () => {
+      if (b.dataset.confirm !== "1") { b.dataset.confirm = "1"; b.textContent = "confirm?"; return; }
+      try { await api(`/segments/${b.dataset.d}`, { method: "DELETE" }); toast(`Deleted "${b.dataset.n}"`); list(); } catch (e) { toast(e.message, true); }
+    }));
+  };
+  list();
+}
+
+function previewHtml(p) {
+  return `<div class="result"><div><span class="big">${fmt(p.count)}</span> people${p.channel ? ` reachable on <b>${esc(p.channel)}</b>` : ""}</div>
+    ${p.sample && p.sample.length ? `<div class="scroll" style="margin-top:8px"><table><tr><th>User</th><th>Name</th><th>Email</th><th>Phone</th><th>Attributes</th></tr>
+    ${p.sample.map((s) => `<tr><td class="mono">${esc(String(s.user_id).slice(0, 18))}</td><td>${esc(s.first_name)}</td><td>${esc(s.email)}</td><td>${esc(s.phone)}</td>
+    <td class="mono">${esc(JSON.stringify(s.attributes).slice(0, 120))}</td></tr>`).join("")}</table></div>` : ""}</div>`;
+}
+
+// ------------------------------------------------------------------ audience
+function audience(el) {
+  el.innerHTML = `<h2>Audience</h2><p class="sub">Bring people in from Excel/CSV, or let the identity database sync automatically.</p>
+    <div class="grid cols-2"><div class="card"><h3>Upload Excel / CSV</h3><form id="up">
+      <div style="margin-bottom:12px"><label>File (.xlsx, .xls, .ods, .csv; header row required)</label><input type="file" name="file" accept=".xlsx,.xls,.ods,.csv" required></div>
+      <div style="margin-bottom:12px"><label>Save as cohort (optional)</label><input name="segment_name" maxlength="200" placeholder="Eid VIP list"></div>
+      <button class="btn primary" id="upbtn">Upload</button></form>
+      <details style="margin-top:12px"><summary>Which columns are understood?</summary><p class="muted">Each row needs <b>user_id</b>, <b>email</b> or <b>phone</b>
+      (mobile / msisdn also work). Also: first_name (or name), last_name, country, language, timezone.
+      <b>Every other column</b> becomes an attribute you can filter on, e.g. "Total Orders" → attributes.total_orders.
+      Phones like 01712345678 or 1712345678 become +8801712345678. Rows matching an existing person by email or phone are merged.</p></details></div>
+    <div class="card"><h3>Identity database sync</h3><div id="sync"></div><div style="margin-top:12px"><button class="btn" id="syncnow">Sync now</button></div></div></div>
+    <div style="height:16px"></div><div class="card"><h3>Imports</h3><div class="scroll" id="ilist"></div></div><div id="ierr"></div>
+</div>`;
+  $("#up").onsubmit = async (e) => {
+    e.preventDefault(); const fd = new FormData(e.target); if (!fd.get("segment_name")) fd.delete("segment_name");
+    const btn = $("#upbtn"); btn.disabled = true;
+    try { await post("/imports", fd); toast("Upload received, processing…"); e.target.reset(); refresh(); } catch (err) { toast(err.message, true); } finally { btn.disabled = false; }
+  };
+  $("#syncnow").onclick = async () => { try { await post("/sync/run"); toast("Sync started"); } catch (e) { toast(e.message, true); } };
+  const refresh = async () => {
+    const [imps, sync] = await Promise.all([api("/imports"), api("/sync")]);
+    $("#ilist").innerHTML = imps.length ? `<table><tr><th>File</th><th>Status</th><th>Progress</th><th class="num">Rows</th><th class="num">Imported</th><th class="num">Failed</th><th>Uploaded</th><th></th></tr>
+      ${imps.map((i) => { const pct = i.total_rows ? Math.round(100 * (i.imported_rows + i.failed_rows) / i.total_rows) : 0;
+        return `<tr><td>${esc(i.filename)}</td><td>${pill(i.status)}</td><td><div class="bar"><i style="width:${i.status === "completed" ? 100 : pct}%"></i></div></td>
+        <td class="num">${fmt(i.total_rows)}</td><td class="num">${fmt(i.imported_rows)}</td><td class="num">${fmt(i.failed_rows)}</td><td class="muted">${ago(i.created_at)}</td>
+        <td>${i.failed_rows || i.status === "failed" ? `<button class="btn small" data-e="${esc(i.id)}">errors</button>` : ""}</td></tr>`; }).join("")}</table>`
+      : `<div class="empty">No uploads yet.</div>`;
+    $("#ilist").querySelectorAll("[data-e]").forEach((b) => (b.onclick = async () => {
+      const r = await api("/imports/" + b.dataset.e);
+      $("#ierr").innerHTML = `<div style="height:16px"></div><div class="card"><h3>Row errors: ${esc(r.filename)} (first ${r.errors.length})</h3><div class="scroll"><table><tr><th>Row</th><th>Problem</th></tr>
+        ${r.errors.map((x) => `<tr><td class="num">${fmt(x.row)}</td><td>${esc(x.error)}</td></tr>`).join("")}</table></div></div>`;
+    }));
+    const src = (sync.sources || [])[0];
+    $("#sync").innerHTML = !sync.enabled ? `<div class="muted">Disabled: set IDENTITY_DATABASE_URL.</div>` : !src ? `<div class="muted">Waiting for first run…</div>` :
+      `<table><tr><td class="muted">Last run</td><td>${ago(src.last_run_at)}</td></tr><tr><td class="muted">Rows synced</td><td>${fmt(src.rows_synced)}</td></tr>
+      <tr><td class="muted">Status</td><td>${src.last_error ? `<span class="mono" style="color:var(--bad)">${esc(src.last_error)}</span>` : '<span class="pill s-completed">healthy</span>'}</td></tr></table>`;
+  };
+  poll(refresh, 4000);
+}
+
+boot();
+</script>
+</body>
+</html>

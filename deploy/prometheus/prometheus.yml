@@ -1,0 +1,17 @@
+global:
+  scrape_interval: 10s
+  evaluation_interval: 15s
+
+rule_files: [alerts.yml]
+
+scrape_configs:
+  - job_name: api
+    dns_sd_configs: [{ names: [api], type: A, port: 8080 }]
+  - job_name: worker
+    dns_sd_configs:
+      - { names: [worker, worker-high, worker-retry, worker-retry-1m, worker-retry-10m, worker-bulk], type: A, port: 9100 }
+  - job_name: campaign
+    static_configs: [{ targets: ["campaign:8090"] }]
+  - job_name: redpanda
+    metrics_path: /public_metrics
+    static_configs: [{ targets: ["redpanda:9644"] }]

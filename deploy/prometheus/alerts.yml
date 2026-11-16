@@ -1,0 +1,73 @@
+groups:
+  - name: notifications-slo
+    rules:
+      - alert: DeliverySuccessRateLow
+        expr: |
+          sum(rate(notifications_processed_total{outcome="sent"}[5m]))
+          / clamp_min(sum(rate(notifications_processed_total{outcome=~"sent|dlq"}[5m])), 1) < 0.99
+        for: 10m
+        labels: { severity: page }
+        annotations: { summary: "Delivery success below 99% for 10m" }
+
+      - alert: HighPriorityLatencySLO
+        expr: |
+          histogram_quantile(0.99, sum by (le) (rate(notification_e2e_latency_seconds_bucket{priority="high"}[5m]))) > 5
+        for: 5m
+        labels: { severity: page }
+        annotations: { summary: "p99 end-to-end latency for high priority > 5s" }
+
+      - alert: ConsumerLagGrowing
+        expr: sum by (topic) (kafka_consumer_lag{topic=~"notify\\.[a-z_]+\\.(high|normal|bulk)"}) > 500000
+        for: 10m
+        labels: { severity: warn }
+        annotations: { summary: "Backlog on {{ $labels.topic }} > 500k for 10m; scale workers" }
+
+      - alert: HighPriorityBacklog
+        expr: sum(kafka_consumer_lag{topic=~"notify\\..*\\.high"}) > 10000
+        for: 2m
+        labels: { severity: page }
+        annotations: { summary: "High-priority backlog > 10k" }
+
+      - alert: DLQRateHigh
+        expr: sum(rate(notifications_processed_total{outcome="dlq"}[5m])) > 50
+        for: 10m
+        labels: { severity: warn }
+        annotations: { summary: "More than 50/s going to DLQ" }
+
+      - alert: ApiErrorRate
+        expr: |
+          sum(rate(http_requests_total{status=~"5.."}[5m])) / clamp_min(sum(rate(http_requests_total[5m])), 1) > 0.01
+        for: 5m
+        labels: { severity: page }
+        annotations: { summary: "API 5xx rate > 1%" }
+
+      - alert: ApiBackpressure
+        expr: sum(rate(notifications_rejected_total{reason="backpressure"}[5m])) > 0
+        for: 5m
+        labels: { severity: warn }
+        annotations: { summary: "API shedding load: Kafka producer queue full" }
+
+      - alert: ProviderLatencyHigh
+        expr: |
+          histogram_quantile(0.99, sum by (le, provider) (rate(provider_request_duration_seconds_bucket[5m]))) > 2
+        for: 10m
+        labels: { severity: warn }
+        annotations: { summary: "{{ $labels.provider }} p99 > 2s" }
+
+      - alert: IdentitySyncStale
+        expr: time() - identity_sync_last_success_timestamp_seconds > 600
+        for: 5m
+        labels: { severity: warn }
+        annotations: { summary: "Identity -> contacts sync has not succeeded for 10m" }
+
+      - alert: CampaignStalled
+        expr: increase(campaign_enqueued_total[10m]) == 0 and on(campaign) (campaign_progress_ratio < 1)
+        for: 15m
+        labels: { severity: warn }
+        annotations: { summary: "Campaign {{ $labels.campaign }} stalled for 15m (paused, or paused on error: check last_error)" }
+
+      - alert: TargetDown
+        expr: up == 0
+        for: 2m
+        labels: { severity: page }
+        annotations: { summary: "{{ $labels.job }} {{ $labels.instance }} down" }
