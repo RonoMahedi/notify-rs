@@ -33,7 +33,8 @@ echo "== dead-letter queue"
 D=$(api "$C/v1/system/dlq?limit=20")
 check "DLQ total = Kafka's stored count" "$(echo "$D" | jq_ "d['total']")" "$(echo "$S" | jq_ "{t['name']: t['stored'] for t in d['kafka']['topics']}['notify.dlq']")"
 check "returns the 20 newest" "$(echo "$D" | jq_ "len(d['items'])==20 and [i['created_at'] for i in d['items']]==sorted([i['created_at'] for i in d['items']], reverse=True)")" True
-check "each has user, failure reason, and address (in-app has none)" "$(echo "$D" | jq_ "all(i['user_id'] and i['reason'] and (i['address'] or i['channel']=='in_app') for i in d['items'])")" True
+# No address is expected for in-app, and for a push to a user with no registered device (tests/fcm.sh sends one).
+check "each has user, failure reason, and address (unless there is none)" "$(echo "$D" | jq_ "all(i['user_id'] and i['reason'] and (i['address'] or i['channel']=='in_app' or i['reason'].startswith('no push token')) for i in d['items'])")" True
 check "reading the DLQ leaves no consumer group behind" "$(docker compose exec -T redpanda rpk group list 2>/dev/null | grep -c 'notify-dlq-peek')" 0
 
 echo; echo "SYSTEM RESULT: $PASS passed, $FAIL failed"
